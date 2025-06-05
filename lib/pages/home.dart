@@ -21,7 +21,7 @@ class _HomePageState extends State<HomePage> {
   List<InspectionItem> _todayInspections = [];
   List<DispatchItem> _todayDispatches = [];
 
-  // 新增：用來儲存被勾選的 DispatchItem ID
+  // 用來儲存被勾選的 DispatchItem ID
   final Set<int> _selectedDispatchIds = {};
 
   @override
@@ -37,20 +37,24 @@ class _HomePageState extends State<HomePage> {
     final url =
         '${ApiConfig.baseUrl}/api/get/workorder/maintenance'
         '?startDate=$today&endDate=$today';
-    final resp = await http.get(
-      Uri.parse(url),
-      headers: {'Authorization': 'Bearer $token'},
-    );
-    if (resp.statusCode == 200) {
-      final body = jsonDecode(resp.body) as Map<String, dynamic>;
-      if (body['status'] == true && body['data'] is List) {
-        final all = (body['data'] as List)
-            .map((j) => InspectionItem.fromJson(j))
-            .toList();
-        setState(() {
-          _todayInspections = all.length > 10 ? all.sublist(0, 10) : all;
-        });
+    try {
+      final resp = await http.get(
+        Uri.parse(url),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (resp.statusCode == 200) {
+        final body = jsonDecode(resp.body) as Map<String, dynamic>;
+        if (body['status'] == true && body['data'] is List) {
+          final all = (body['data'] as List)
+              .map((j) => InspectionItem.fromJson(j))
+              .toList();
+          setState(() {
+            _todayInspections = all.length > 10 ? all.sublist(0, 10) : all;
+          });
+        }
       }
+    } catch (e) {
+      debugPrint('[Fetch Inspections] Error: $e');
     }
   }
 
@@ -60,21 +64,98 @@ class _HomePageState extends State<HomePage> {
     final url =
         '${ApiConfig.baseUrl}/api/get/workorder/repairDispatch'
         '?startDate=$today&endDate=$today';
-    final resp = await http.get(
-      Uri.parse(url),
-      headers: {'Authorization': 'Bearer $token'},
-    );
-    if (resp.statusCode == 200) {
-      final body = jsonDecode(resp.body) as Map<String, dynamic>;
-      if (body['status'] == true && body['data'] is List) {
-        setState(() {
-          _todayDispatches = (body['data'] as List)
-              .map((j) => DispatchItem.fromJson(j))
-              .toList();
-          // 如果一開始要預設清空選取，可在這裡確保 _selectedDispatchIds 清空
-          _selectedDispatchIds.clear();
-        });
+    try {
+      final resp = await http.get(
+        Uri.parse(url),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (resp.statusCode == 200) {
+        final body = jsonDecode(resp.body) as Map<String, dynamic>;
+        if (body['status'] == true && body['data'] is List) {
+          setState(() {
+            _todayDispatches = (body['data'] as List)
+                .map((j) => DispatchItem.fromJson(j))
+                .toList();
+            _selectedDispatchIds.clear(); // 重新載入時清空之前的勾選
+          });
+        }
       }
+    } catch (e) {
+      debugPrint('[Fetch Dispatches] Error: $e');
+    }
+  }
+
+  /// 私有方法：呼叫 PATCH API 更新派工單狀態
+  Future<void> _updateDispatchStatus({
+    required List<int> ids,
+    required int newStatus,
+  }) async {
+    final token = context.read<AppState>().token;
+    final uri = Uri.parse(
+      'http://211.23.157.201:3008/api/patch/workorder/repairDispatch/status',
+    );
+
+    final payload = {
+      'ID': ids,
+      'STATUS': newStatus,
+    };
+
+    try {
+      final resp = await http.patch(
+        uri,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(payload),
+      );
+
+      if (resp.statusCode == 200) {
+        final body = jsonDecode(resp.body) as Map<String, dynamic>;
+        if (body['status'] == true) {
+          // 更新成功，跳出提示後重新抓資料、清除勾選
+          if (!mounted) return;
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text('更新成功'),
+              content: const Text('派工單狀態已更新'),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _fetchTodayDispatches();
+                  },
+                  child: const Text('確定'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          // 後端回傳 status: false
+          final msg = body['message'] ?? '未知錯誤';
+          throw Exception('後端失敗: $msg');
+        }
+      } else {
+        throw Exception(
+            'HTTP ${resp.statusCode}，內容：${resp.body}');
+      }
+    } catch (e) {
+      debugPrint('[Patch Dispatch Status] Error: $e');
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('更新失敗'),
+          content: Text(e.toString()),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('關閉'),
+            ),
+          ],
+        ),
+      );
     }
   }
 
@@ -89,7 +170,6 @@ class _HomePageState extends State<HomePage> {
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
         child: Column(
           children: [
-            // 上方標題
             const Center(
               child: Text(
                 '新增表單',
@@ -102,7 +182,6 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(height: 16),
 
-            // 三個表單按鈕
             Row(
               children: [
                 Expanded(
@@ -132,7 +211,6 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(height: 24),
 
-            // 今日派工回報清單
             Align(
               alignment: Alignment.center,
               child: Text(
@@ -145,11 +223,10 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
             const SizedBox(height: 8),
-            _buildDispatchTable(), // 在這裡呼叫更新後的 Dispatch Table
+            _buildDispatchTable(), // 這裡呼叫更新後的 Dispatch Table
 
             const SizedBox(height: 24),
 
-            // 今日完成巡修單
             Align(
               alignment: Alignment.center,
               child: const Text(
@@ -186,7 +263,7 @@ class _HomePageState extends State<HomePage> {
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
-                columnSpacing: 36,
+                columnSpacing: 32,
                 columns: const [
                   DataColumn(label: Text('項目')),
                   DataColumn(label: Text('案件編號')),
@@ -249,14 +326,14 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// 更新：Dispatch Table，新增「勾選」欄位以及「回報」按鈕
+  /// 更新後：Dispatch Table，新增「勾選」欄位以及「回報（呼叫 PATCH API）」按鈕
   Widget _buildDispatchTable() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 今日共 X 筆 + 「回報」按鈕
+        // 今日共 X 筆 + 「更多≫」按鈕
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
           child: Row(
             children: [
               Text(
@@ -267,7 +344,6 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               const Spacer(),
-              // 「更多≫」導向 Dispatch List
               TextButton(
                 onPressed: () => Navigator.pushNamed(context, '/dispatchList'),
                 child: const Text('更多≫'),
@@ -275,27 +351,34 @@ class _HomePageState extends State<HomePage> {
             ],
           ),
         ),
-        // 在「今日共 X 筆」下方，新增「回報」按鈕
+
+        // 「回報」按鈕，按下去呼叫 PATCH API
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 2),
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
           child: ElevatedButton(
             onPressed: () {
-              // 點擊時跳出 AlertDialog，顯示被勾選的 ID 列表
-              final selectedIdsString =
-              _selectedDispatchIds.isEmpty ? '（未選擇任何項目）' : _selectedDispatchIds.join(', ');
-              showDialog(
-                context: context,
-                builder: (_) => AlertDialog(
-                  title: const Text('回報確認'),
-                  content: Text('已選擇的 Dispatch ID：\n$selectedIdsString'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('關閉'),
-                    ),
-                  ],
-                ),
-              );
+              if (_selectedDispatchIds.isEmpty) {
+                // 若沒勾選任何項目，就顯示錯誤提示
+                showDialog(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text('錯誤'),
+                    content: const Text('請先勾選至少一筆派工單'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('關閉'),
+                      ),
+                    ],
+                  ),
+                );
+              } else {
+                // 跑私有方法，帶入目前勾選的 ID 列表，狀態改為 2
+                _updateDispatchStatus(
+                  ids: _selectedDispatchIds.toList(),
+                  newStatus: 2,
+                );
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF2F5597),
@@ -307,13 +390,13 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
         ),
+
         // DataTable（含「勾選」欄位）
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: DataTable(
-            columnSpacing: 36,
+            columnSpacing: 32,
             columns: [
-              // 新增「勾選」欄位
               const DataColumn(label: Text('勾選')),
               const DataColumn(label: Text('狀態')),
               const DataColumn(label: Text('派工單類型')),
@@ -333,12 +416,12 @@ class _HomePageState extends State<HomePage> {
                 default:
                   statusColor = Colors.red;
               }
-              final checked = _selectedDispatchIds.contains(item.id);
+              final isChecked = _selectedDispatchIds.contains(item.id);
               return DataRow(cells: [
-                // 第一欄：Checkbox
+                // 「勾選」欄：Checkbox
                 DataCell(
                   Checkbox(
-                    value: checked,
+                    value: isChecked,
                     onChanged: (bool? value) {
                       setState(() {
                         if (value == true) {

@@ -63,35 +63,6 @@ class MyEndDrawer extends StatelessWidget {
                 ),
               ),
               child: ExpansionTile(
-                title: Text('案件模組', style: TextStyle(color: Colors.white)),
-                leading: Icon(Icons.library_books, color: Colors.white),
-                children: [
-                  ListTile(
-                    title: Text('巡修列表', style: TextStyle(color: Colors.white)),
-                    onTap: () {
-                      Navigator.pop(context);
-                      context.read<AppState>().setCurrentPage('inspectionList');
-                      Navigator.pushReplacementNamed(context, '/inspectionList');
-                    },
-                  ),
-                ],
-              ),
-            ),
-            Theme(
-              // 用 Theme 包住 ExpansionTile，單獨改它的顏色
-              data: Theme.of(context).copyWith(
-                dividerColor: Colors.transparent, // 移除展開線
-                unselectedWidgetColor: Colors.white, // 未選中狀態的箭頭顏色
-                expansionTileTheme: ExpansionTileThemeData(
-                  iconColor: Colors.white,
-                  collapsedIconColor: Colors.white,
-                  collapsedTextColor: Colors.white,
-                  textColor: Colors.white,
-                  backgroundColor: Colors.blueGrey[700],
-                  collapsedBackgroundColor: Colors.blueGrey[800],
-                ),
-              ),
-              child: ExpansionTile(
                 title: Text('派工模組', style: TextStyle(color: Colors.white)),
                 leading: Icon(Icons.work, color: Colors.white),
                 children: [

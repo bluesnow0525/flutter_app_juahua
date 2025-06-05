@@ -105,6 +105,12 @@ class UploadService {
     appState.updateUploadRecord(rec);
 
     try {
+      final filteredBody = <String, dynamic>{};
+      rec.body.forEach((k, v) {
+        if (v.toString().isNotEmpty) {
+          filteredBody[k] = v;
+        }
+      });
       // ─── 派工單 (TYPE == 'PA') ───────────────────────
       if (rec.body['TYPE'] == 'PA') {
         // 1) 分類收集各階段檔案路徑
@@ -139,11 +145,11 @@ class UploadService {
 
         // Debug：印出欄位與檔案資訊
         print('🛠 UploadService PA → $method $uri');
-        print('📋 fields: ${rec.body.keys.where((k)=>k!='case_num')}');
+        print('📋 fields: ${filteredBody.keys.where((k)=>k!='case_num')}');
         print('📦 zips: before=${zipBefore.length}, cut=${zipCut.length}, during=${zipDuring.length}, after=${zipAfter.length}, other=${zipOther.length}');
 
         // 4) 填文字欄位
-        rec.body.forEach((k, v) {
+        filteredBody.forEach((k, v) {
           if (k != 'case_num') {
             req.fields[k] = v.toString();
           }
@@ -200,6 +206,15 @@ class UploadService {
               }
             } catch (e) {
               print('⚠️ 解析派工單回傳 JSON 失败：$e');
+            }
+          }else{
+            final Map<String, dynamic> json = jsonDecode(resp.body);
+            if (json['status'] == true) {
+              // final data = json['data'] as Map<String, dynamic>?;
+              rec.status = UploadStatus.success;
+            } else {
+              print('⚠️ 伺服器回傳 status=false, message=${json['message']}');
+              rec.status   = UploadStatus.failed;
             }
           }
         } else {
@@ -277,20 +292,21 @@ class UploadService {
           ..headers['Authorization'] = 'Bearer ${appState.token}';
 
         // 5) 填文字欄位
-        rec.body.forEach((k, v) {
+        filteredBody.forEach((k, v) {
+          // 如果是 TEST_ITEM 且 v 為 List<String>
           if (k == 'TEST_ITEM' && v is List<String>) {
-            // 把每一项都当作一段 MultipartFile.fromString 加到 req.files 里
             for (var single in v) {
-              req.files.add(
-                http.MultipartFile.fromString(
-                  'TEST_ITEM',
-                  single,
-                  contentType: MediaType('text', 'plain'),
-                ),
-              );
+              if (single.toString().isNotEmpty) {
+                req.files.add(
+                  http.MultipartFile.fromString(
+                    'TEST_ITEM',
+                    single,
+                    contentType: MediaType('text', 'plain'),
+                  ),
+                );
+              }
             }
           } else {
-            // 其它字段照常放到 fields 里
             req.fields[k] = v.toString();
           }
         });
@@ -404,7 +420,7 @@ class UploadService {
 
         // 3️⃣ 填入所有 form-data 文本字段
         //    （务必包含 PRJ_ID, TYPE, SURVEY_DATE…）
-        rec.body.forEach((k, v) {
+        filteredBody.forEach((k, v) {
           if (k != 'case_num') {
             req.fields[k] = v.toString();
           }
@@ -524,14 +540,22 @@ class UploadService {
       else {
         final uri = Uri.parse('${ApiConfig.baseUrl}/api/app/workorder/maintenance');
         print('🛠 UploadService POST inspection → $uri');
-        print('📋 json body: ${jsonEncode(rec.body)}');
 
-        final response = await http.post(uri,
+        final filteredBody = <String, dynamic>{};
+        rec.body.forEach((k, v) {
+          if (v.toString().isNotEmpty) {
+            filteredBody[k] = v;
+          }
+        });
+        print('📋 [Filtered] json body: ${jsonEncode(filteredBody)}');
+
+        final response = await http.post(
+          uri,
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ${appState.token}',
           },
-          body: jsonEncode(rec.body),
+          body: jsonEncode(filteredBody),
         );
         print('🚀 UploadService POST response: ${response.statusCode} ${response.body}');
         final result = jsonDecode(response.body) as Map<String, dynamic>;

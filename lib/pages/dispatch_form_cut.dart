@@ -853,34 +853,34 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
         missingFields.add('迄點 GPS 定位');
       }
     }
-    // WORK_DATE（施工日期）
-    if (_workDateController.text.trim().isEmpty) {
-      missingFields.add('施工日期');
-    }
-    // COMPLETE_DATE（完工日期）
-    if (_completeDateController.text.trim().isEmpty) {
-      missingFields.add('完工日期');
-    }
-    // DUE_DATE（施工期限）
-    if (_deadlineController.text.trim().isEmpty) {
-      missingFields.add('施工期限');
-    }
-    // → 新增：施工範圍（長）
-    if (_rangeLengthController.text.trim().isEmpty) {
-      missingFields.add('施工範圍（長）');
-    }
-    // → 新增：施工範圍（寬）
-    if (_rangeWidthController.text.trim().isEmpty) {
-      missingFields.add('施工範圍（寬）');
-    }
-    // → 新增：深度（刨除）
-    if (_cutDepthController.text.trim().isEmpty) {
-      missingFields.add('刨除深度');
-    }
-    // → 新增：深度（鋪設）
-    if (_paveDepthController.text.trim().isEmpty) {
-      missingFields.add('鋪設深度');
-    }
+    // // WORK_DATE（施工日期）
+    // if (_workDateController.text.trim().isEmpty) {
+    //   missingFields.add('施工日期');
+    // }
+    // // COMPLETE_DATE（完工日期）
+    // if (_completeDateController.text.trim().isEmpty) {
+    //   missingFields.add('完工日期');
+    // }
+    // // DUE_DATE（施工期限）
+    // if (_deadlineController.text.trim().isEmpty) {
+    //   missingFields.add('施工期限');
+    // }
+    // // → 新增：施工範圍（長）
+    // if (_rangeLengthController.text.trim().isEmpty) {
+    //   missingFields.add('施工範圍（長）');
+    // }
+    // // → 新增：施工範圍（寬）
+    // if (_rangeWidthController.text.trim().isEmpty) {
+    //   missingFields.add('施工範圍（寬）');
+    // }
+    // // → 新增：深度（刨除）
+    // if (_cutDepthController.text.trim().isEmpty) {
+    //   missingFields.add('刨除深度');
+    // }
+    // // → 新增：深度（鋪設）
+    // if (_paveDepthController.text.trim().isEmpty) {
+    //   missingFields.add('鋪設深度');
+    // }
 
     // 如果有缺少欄位，跳提示框並中斷
     if (missingFields.isNotEmpty) {
@@ -901,23 +901,21 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
       return;
     }
 
-    // ---- 2️⃣ 日期順序檢查：派工日期 <= 施工日期 <= 完工日期 <= 施工期限 ----
-    DateTime? dispatchDate;
+    // ---- 2️⃣ 日期順序檢查：只檢查有填的那幾個日期 ----
+    DateTime dispatchDate;
     DateTime? workDate;
     DateTime? completeDate;
     DateTime? dueDate;
+
+    // 1) 先解析「派工日期」（必填）：
     try {
       dispatchDate = DateFormat('yyyy-MM-dd').parse(_dispatchDateController.text.trim());
-      workDate     = DateFormat('yyyy-MM-dd').parse(_workDateController.text.trim());
-      completeDate = DateFormat('yyyy-MM-dd').parse(_completeDateController.text.trim());
-      dueDate      = DateFormat('yyyy-MM-dd').parse(_deadlineController.text.trim());
     } catch (e) {
-      // 若解析失敗，視為格式不符
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
           title: const Text('日期格式錯誤'),
-          content: const Text('請確認所有日期格式均為 yyyy-MM-dd'),
+          content: const Text('請確認「派工日期」格式為 yyyy-MM-dd'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -929,24 +927,133 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
       return;
     }
 
-    // 檢查順序
-    if (!(dispatchDate.isBefore(workDate) || dispatchDate.isAtSameMomentAs(workDate)) ||
-        !(workDate.isBefore(completeDate) || workDate.isAtSameMomentAs(completeDate)) ||
-        !(completeDate.isBefore(dueDate) || completeDate.isAtSameMomentAs(dueDate))) {
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('日期順序錯誤'),
-          content: const Text('請確保：\n派工日期 ≤ 施工日期 ≤ 完工日期 ≤ 施工期限'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('確定'),
-            ),
-          ],
-        ),
-      );
-      return;
+    // 2) 如果使用者有填「施工日期」，就解析；否則保持 null
+    if (_workDateController.text.trim().isNotEmpty) {
+      try {
+        workDate = DateFormat('yyyy-MM-dd').parse(_workDateController.text.trim());
+      } catch (e) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('日期格式錯誤'),
+            content: const Text('請確認「施工日期」格式為 yyyy-MM-dd'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('確定'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+    }
+
+    // 3) 如果使用者有填「完工日期」，就解析；否則保持 null
+    if (_completeDateController.text.trim().isNotEmpty) {
+      try {
+        completeDate = DateFormat('yyyy-MM-dd').parse(_completeDateController.text.trim());
+      } catch (e) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('日期格式錯誤'),
+            content: const Text('請確認「完工日期」格式為 yyyy-MM-dd'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('確定'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+    }
+
+    // 4) 如果使用者有填「施工期限」，就解析；否則保持 null
+    if (_deadlineController.text.trim().isNotEmpty) {
+      try {
+        dueDate = DateFormat('yyyy-MM-dd').parse(_deadlineController.text.trim());
+      } catch (e) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('日期格式錯誤'),
+            content: const Text('請確認「施工期限」格式為 yyyy-MM-dd'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('確定'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+    }
+
+    // 5) 按照先後順序檢查：dispatchDate → workDate → completeDate → dueDate
+    //    只要該階段有填，就要比對與前一個已填日期的先後關係
+    DateTime prev = dispatchDate;
+    if (workDate != null) {
+      if (prev.isAfter(workDate)) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('日期順序錯誤'),
+            content: const Text('「施工日期」需不早於「派工日期」'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('確定'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+      prev = workDate;
+    }
+    if (completeDate != null) {
+      // 如果施工日期沒填，就直接用派工日期與完工日期比對
+      if (prev.isAfter(completeDate)) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('日期順序錯誤'),
+            content: const Text('「完工日期」需不早於「施工日期」或「派工日期」'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('確定'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+      prev = completeDate;
+    }
+    if (dueDate != null) {
+      // 檢查完工日期或施工日期／派工日期 與施工期限
+      if (prev.isAfter(dueDate)) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('日期順序錯誤'),
+            content: const Text('「施工期限」需不早於之前所有已填日期'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('確定'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+      prev = dueDate;
     }
 
     // ---- 3️⃣ 全部檢查通過後，進入既有的 UploadRecord 建立與 enqueue 流程 ----

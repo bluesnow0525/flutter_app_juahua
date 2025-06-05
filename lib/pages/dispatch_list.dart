@@ -94,48 +94,64 @@ class DispatchItem {
   });
 
   factory DispatchItem.fromJson(Map<String, dynamic> j) {
-    DateTime? parseNullableDate(String? s) =>
-        s == null ? null : DateTime.parse(s);
+    // 將可能為 null 的日期轉換為 DateTime 或 null
+    DateTime? parseNullableDate(String? s) => s == null ? null : DateTime.parse(s);
+
+    // 處理 test_item
     List<String>? parsedTestItems;
     if (j['test_item'] is List) {
       parsedTestItems = (j['test_item'] as List).cast<String>();
     } else if (j['test_item'] is String) {
-      // 假設後端是「、」分隔
       final raw = j['test_item'] as String;
-      parsedTestItems = raw.contains('、')
-          ? raw.split('、')
-          : [raw];
+      parsedTestItems = raw.contains('、') ? raw.split('、') : [raw];
     }
+
+    // 處理 images：如果缺 images，就用空 List<Map>，以免 cast 失敗
+    final List<Map<String, dynamic>> parsedImages = (j['images'] is List)
+        ? (j['images'] as List).cast<Map<String, dynamic>>()
+        : <Map<String, dynamic>>[];
+
     return DispatchItem(
       id: j['id'] as int,
-      type: j['type'] as String,
-      caseNum: j['case_num'] as String,
-      prjId: j['prj_id'] as String,
-      dispatchDate: DateTime.parse(j['dispatch_date'] as String),
-      dueDate: DateTime.parse(j['due_date'] as String),
-      district: j['district'] as String,
-      village: j['cavlge'] as String,
-      address: j['address'] as String,
+      // 以下所有 String 欄位都改為「as String? ?? ''」
+      type: j['type'] as String? ?? '',
+      caseNum: j['case_num'] as String? ?? '',
+      prjId: j['prj_id'] as String? ?? '',
+      dispatchDate: DateTime.parse(j['dispatch_date'] as String? ?? ''),
+      dueDate: DateTime.parse(j['due_date'] as String? ?? ''),
+      district: j['district'] as String? ?? '',
+      village: j['cavlge'] as String? ?? '',
+      address: j['address'] as String? ?? '',
       startAddr: j['start_addr'] as String? ?? '',
       endAddr: j['end_addr'] as String? ?? '',
-      workStartDate: DateTime.parse(j['work_start_date'] as String),
-      workEndDate: DateTime.parse(j['work_end_date'] as String),
-      material: j['material'] as String,
-      materialSize: (j['material_size'] as num).toDouble(),
-      workLength: (j['work_length'] as num).toDouble(),
-      workWidth: (j['work_width'] as num).toDouble(),
-      workDepthMilling: (j['work_depth_milling'] as num).toDouble(),
-      workDepthPaving: (j['work_depth_paving'] as num).toDouble(),
-      remark: j['remark'] as String,
-      startLng: (j['start_lng'] as num).toDouble(),
-      startLat: (j['start_lat'] as num).toDouble(),
-      endLng: (j['end_lng'] as num).toDouble(),
-      endLat: (j['end_lat'] as num).toDouble(),
+      workStartDate: DateTime.parse(j['work_start_date'] as String? ?? ''),
+      workEndDate: DateTime.parse(j['work_end_date'] as String? ?? ''),
+      material: j['material'] as String? ?? '',
+      // 以下數字欄位若為 null，一律回傳 0.0
+      materialSize:
+      (j['material_size'] as num?)?.toDouble() ?? 0.0,
+      workLength:
+      (j['work_length'] as num?)?.toDouble() ?? 0.0,
+      workWidth:
+      (j['work_width'] as num?)?.toDouble() ?? 0.0,
+      workDepthMilling:
+      (j['work_depth_milling'] as num?)?.toDouble() ?? 0.0,
+      workDepthPaving:
+      (j['work_depth_paving'] as num?)?.toDouble() ?? 0.0,
+      remark: j['remark'] as String? ?? '',
+      startLng: (j['start_lng'] as num?)?.toDouble() ?? 0.0,
+      startLat: (j['start_lat'] as num?)?.toDouble() ?? 0.0,
+      endLng: (j['end_lng'] as num?)?.toDouble() ?? 0.0,
+      endLat: (j['end_lat'] as num?)?.toDouble() ?? 0.0,
+      // sampleTaken 允許為 null
       sampleTaken: j['sample_taken'] as bool?,
+      // 如果 sample_date 為 null，就傳 null
       sampleDate: parseNullableDate(j['sample_date'] as String?),
+      // 解析後的 testItem
       testItem: parsedTestItems,
+      // Status 改為允許 null
       Status: j['status'] as String?,
-      images: (j['images'] as List).cast<Map<String, dynamic>>(),
+      images: parsedImages,
     );
   }
 
@@ -143,23 +159,21 @@ class DispatchItem {
   String get status => Status ?? '待施工';
 
   /// 取回第一張圖的完整 URL（table 中只顯示第一張）
-  /// DispatchItem 模型里
   String get firstImageUrl {
     if (images.isEmpty) return '';
 
     // 先找第一個不是 ZIP 的 entry
     final entry = images.firstWhere(
           (img) {
-        final t = img['img_type'] as String;
+        final t = img['img_type'] as String? ?? '';
         return t != 'IMG_SAMPLE_ZIP' && t != 'IMG_OTHER_ZIP';
       },
-      orElse: () => images.first, // 如果全部都是 ZIP，就 fallback 第一筆
+      orElse: () => images.first,
     );
 
-    final path = entry['img_path'] as String;
-    return '${ApiConfig.baseUrl}/$path';
+    final path = entry['img_path'] as String? ?? '';
+    return path.isEmpty ? '' : '${ApiConfig.baseUrl}/$path';
   }
-
 }
 
 class DispatchListPage extends StatefulWidget {
