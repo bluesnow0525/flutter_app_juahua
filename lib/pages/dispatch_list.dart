@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../app_state.dart';
 import '../components/app_header.dart';
 import '../components/my_end_drawer.dart';
+import '../components/config.dart';
 
 /// 標案模型
 class Tender {
@@ -39,6 +40,8 @@ class DispatchItem {
   final String district;
   final String village;
   final String address;
+  final String startAddr;
+  final String endAddr;
   final DateTime workStartDate;
   final DateTime workEndDate;
   final String material;
@@ -54,7 +57,8 @@ class DispatchItem {
   final double endLat;
   final bool? sampleTaken;
   final DateTime? sampleDate;
-  final String? testItem;
+  final List<String>? testItem;
+  final String? Status;
   final List<Map<String, dynamic>> images;
 
   DispatchItem({
@@ -67,6 +71,8 @@ class DispatchItem {
     required this.district,
     required this.village,
     required this.address,
+    required this.startAddr,
+    required this.endAddr,
     required this.workStartDate,
     required this.workEndDate,
     required this.material,
@@ -82,13 +88,24 @@ class DispatchItem {
     required this.endLat,
     required this.sampleTaken,
     required this.sampleDate,
-    required this.testItem,
+    this.testItem,
+    this.Status,
     required this.images,
   });
 
   factory DispatchItem.fromJson(Map<String, dynamic> j) {
     DateTime? parseNullableDate(String? s) =>
         s == null ? null : DateTime.parse(s);
+    List<String>? parsedTestItems;
+    if (j['test_item'] is List) {
+      parsedTestItems = (j['test_item'] as List).cast<String>();
+    } else if (j['test_item'] is String) {
+      // 假設後端是「、」分隔
+      final raw = j['test_item'] as String;
+      parsedTestItems = raw.contains('、')
+          ? raw.split('、')
+          : [raw];
+    }
     return DispatchItem(
       id: j['id'] as int,
       type: j['type'] as String,
@@ -99,6 +116,8 @@ class DispatchItem {
       district: j['district'] as String,
       village: j['cavlge'] as String,
       address: j['address'] as String,
+      startAddr: j['start_addr'] as String? ?? '',
+      endAddr: j['end_addr'] as String? ?? '',
       workStartDate: DateTime.parse(j['work_start_date'] as String),
       workEndDate: DateTime.parse(j['work_end_date'] as String),
       material: j['material'] as String,
@@ -114,32 +133,33 @@ class DispatchItem {
       endLat: (j['end_lat'] as num).toDouble(),
       sampleTaken: j['sample_taken'] as bool?,
       sampleDate: parseNullableDate(j['sample_date'] as String?),
-      testItem: j['test_item'] as String?,
+      testItem: parsedTestItems,
+      Status: j['status'] as String?,
       images: (j['images'] as List).cast<Map<String, dynamic>>(),
     );
   }
 
   /// 用於 DataTable 顯示的「狀態」
-  String get status => sampleTaken == true ? '已回報' : '待施工';
+  String get status => Status ?? '待施工';
 
   /// 取回第一張圖的完整 URL（table 中只顯示第一張）
+  /// DispatchItem 模型里
   String get firstImageUrl {
-    // 找到第一個 path 不是 .zip 的 entry
-    final jpg = images.firstWhere(
-          (m) {
-        final path = (m['img_path'] as String).toLowerCase();
-        return !path.endsWith('.zip');
+    if (images.isEmpty) return '';
+
+    // 先找第一個不是 ZIP 的 entry
+    final entry = images.firstWhere(
+          (img) {
+        final t = img['img_type'] as String;
+        return t != 'IMG_SAMPLE_ZIP' && t != 'IMG_OTHER_ZIP';
       },
-      orElse: () => {},
+      orElse: () => images.first, // 如果全部都是 ZIP，就 fallback 第一筆
     );
 
-    final path = jpg.isNotEmpty
-        ? jpg['img_path'] as String
-        : '';
-    return path.isEmpty
-        ? ''
-        : 'http://211.23.157.201/$path';
+    final path = entry['img_path'] as String;
+    return '${ApiConfig.baseUrl}/$path';
   }
+
 }
 
 class DispatchListPage extends StatefulWidget {
@@ -196,7 +216,7 @@ class _DispatchListPageState extends State<DispatchListPage> {
 
   Future<void> _fetchTenders() async {
     final token = context.read<AppState>().token;
-    final uri = Uri.parse('http://211.23.157.201/api/get/tender');
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/get/tender');
     final resp = await http.get(uri, headers: {
       'Authorization': 'Bearer $token',
     });
@@ -215,7 +235,7 @@ class _DispatchListPageState extends State<DispatchListPage> {
   Future<void> _fetchVillages() async {
     final token = context.read<AppState>().token;
     final resp = await http.get(
-      Uri.parse('http://211.23.157.201/api/get/geo/area'),
+      Uri.parse('${ApiConfig.baseUrl}/api/get/geo/area'),
       headers: {'Authorization': 'Bearer $token'},
     );
     if (resp.statusCode == 200) {
@@ -237,6 +257,7 @@ class _DispatchListPageState extends State<DispatchListPage> {
     final initial = isStart ? _dispatchStart : _dispatchEnd;
     final dt = await showDatePicker(
       context: context,
+      locale: const Locale('zh', 'TW'),
       initialDate: initial,
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
@@ -286,7 +307,7 @@ class _DispatchListPageState extends State<DispatchListPage> {
       qs.add('caseNumber=${Uri.encodeComponent(_caseNumController.text.trim())}');
     }
 
-    final url = 'http://211.23.157.201/api/get/workorder/repairDispatch?${qs.join('&')}';
+    final url = '${ApiConfig.baseUrl}/api/get/workorder/repairDispatch?${qs.join('&')}';
     print('🔍 Dispatch Request URL: $url');
 
     try {
@@ -453,14 +474,14 @@ class _DispatchListPageState extends State<DispatchListPage> {
     DataCell(Text(item.prjId)),
     DataCell(Text(item.address)),
     DataCell(
-    item.firstImageUrl.isNotEmpty
-    ? Image.network(
-    item.firstImageUrl,
-    width: 50,
-    height: 50,
-    fit: BoxFit.cover,
-    )
-        : const SizedBox.shrink(),
+      item.firstImageUrl.isNotEmpty
+          ? IconButton(
+        icon: const Icon(Icons.archive_outlined, size: 24),
+        onPressed: () {
+          Navigator.pushNamed(context, formRoute, arguments: item);
+        },
+      )
+          : const SizedBox.shrink(),
     ),
     ],
     );

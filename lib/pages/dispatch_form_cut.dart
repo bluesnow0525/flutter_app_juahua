@@ -12,12 +12,17 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'dart:typed_data';
+import 'package:path_provider/path_provider.dart';  // getTemporaryDirectory
+import 'package:uuid/uuid.dart';
 
 import '../app_state.dart';
 import '../components/app_header.dart';
 import '../components/my_end_drawer.dart';
 import 'map_picker_page.dart';
 import './dispatch_list.dart';
+import '../components/upload_services.dart';        // UploadService.enqueue
+import '../components/upload_record.dart';
+import '../components/config.dart';
 
 /// 標案模型
 class Tender {
@@ -73,10 +78,10 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
   final TextEditingController _noteController = TextEditingController();
 
   // 照片
-  File? _photoBefore;
-  File? _photoCut;
-  File? _photoDuring;
-  File? _photoAfter;
+  List<File> _photoBefore = [];
+  List<File> _photoCut = [];
+  List<File> _photoDuring = [];
+  List<File> _photoAfter = [];
   final List<File> _photoOthers = [];
   final ImagePicker _picker = ImagePicker();
 
@@ -89,6 +94,7 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
   // 編輯模式旗標與儲存傳入的 DispatchItem
   DispatchItem?  _initialArgs;
   bool          _hasInitFromArgs = false;
+  bool _hasInitArgs = false;
   bool _isEditMode = false;
   late DispatchItem _editItem;
   // 舊圖 URL（用於編輯時顯示網路圖）
@@ -99,21 +105,27 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
   List<Uint8List> _existingOtherImages = [];
   String? _existingOtherZipUrl;
   String? _existingImgZipUrl;
+  String? _existingOtherZipLocalPath;
+
+  dynamic _rawArgs;
 
   @override
   void initState() {
     super.initState();
+    // _caseIdController.text = '';
+    // WidgetsBinding.instance.addPostFrameCallback((_) {
+    //   final args = ModalRoute.of(context)?.settings.arguments;
+    //   if (args is DispatchItem) {
+    //     _initialArgs = args;
+    //   } else {
+    //     // 只有「新增模式」才一開始抓 GPS
+    //     _onLocateGPS(_startGPSController);
+    //   }
+    //   _fetchTenders();
+    // });
     _caseIdController.text = '';
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final args = ModalRoute.of(context)?.settings.arguments;
-      if (args is DispatchItem) {
-        _initialArgs = args;
-      } else {
-        // 只有「新增模式」才一開始抓 GPS
-        _onLocateGPS(_startGPSController);
-      }
-      _fetchTenders();
-    });
+    // _onLocateGPS(_startGPSController);
+    _fetchTenders();
   }
 
   @override
@@ -142,58 +154,104 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
 
   /// 当用户点选标案时调用：更新行政区选项，并在编辑时尝试恢复 editItem.district
   void _onProjectChanged(String prjId) {
-    final tender    = _tenders.firstWhere((t) => t.prjId == prjId);
+    // 找到對應的 Tender
+    final tender = _tenders.firstWhere((t) => t.prjId == prjId);
     final districts = tender.districts.toSet().toList();
-    String? chosen  = districts.isNotEmpty ? districts.first : null;
 
-    // 編輯模式要還原原本那筆的 district
-    if (_isEditMode
-        && prjId == _editItem.prjId
-        && districts.contains(_editItem.district)) {
-      chosen = _editItem.district;
+    // 根據不同模式選出要顯示的區域
+    String? chosen;
+    if (_rawArgs is DispatchItem) {
+      // 真正從後端拉回來的編輯模式 -> 用 DispatchItem 裡的 district 還原
+      final item = _rawArgs as DispatchItem;
+      chosen = districts.contains(item.district)
+          ? item.district
+          : (districts.isNotEmpty ? districts.first : null);
+    } else if (_rawArgs is UploadRecord) {
+      // 本地重傳 -> 保留之前在 body 裡回填的 _selectedDistrict（若無效才 fallback）
+      chosen = (_selectedDistrict != null && districts.contains(_selectedDistrict))
+          ? _selectedDistrict
+          : (districts.isNotEmpty ? districts.first : null);
+    } else {
+      // 新增模式 -> 一律預設第一個
+      chosen = districts.isNotEmpty ? districts.first : null;
     }
 
     setState(() {
-      _selectedPrjId       = prjId;
+      _selectedPrjId = prjId;
       _projectNameController.text = tender.prjName;
-      _districtOptions     = districts;
-      _selectedDistrict    = chosen;
+      _districtOptions = districts;
+      _selectedDistrict = chosen;
       _districtController.text = chosen ?? '';
     });
   }
 
-
   /// 根据 DispatchItem.images 填充网络图片 URL
-  void _populateExistingImageUrls(DispatchItem item) {
+  /// 先把后端给你的所有 img_url 下载并存成本地 File，再赋给 _photoXxx
+  Future<void> _populateExistingImageUrls(DispatchItem item) async {
     for (var img in item.images) {
-      final url = 'http://211.23.157.201/${img['img_path']}';
-      switch (img['img_type']) {
-        case 'IMG_BEFORE':    _existingBeforeUrl   = url; break;
-        case 'IMG_CUT':       _existingCutUrl      = url; break;
-        case 'IMG_DURING':    _existingDuringUrl   = url; break;
-        case 'IMG_AFTER':     _existingAfterUrl    = url; break;
-        case 'IMG_OTHER_ZIP': _existingOtherZipUrl = url; break;
-        case 'IMG_ZIP':       _existingImgZipUrl   = url; break;
+      final url  = '${ApiConfig.baseUrl}/${img['img_path']}';
+      final type = img['img_type'] as String;
+
+      // 1) 先下載到暫存
+      final localArchive = await _downloadToTemp(url);
+      final bytes        = File(localArchive).readAsBytesSync();
+
+      // 2) 嘗試用 ZipDecoder 解壓，失敗就跳過
+      Archive archive;
+      try {
+        archive = ZipDecoder().decodeBytes(bytes);
+      } catch (e) {
+        print('≫ 非 ZIP/解壓失敗，跳過 $url：$e');
+        continue;
+      }
+
+      // 3) 把每個檔案寫出來，放到對應陣列
+      for (final f in archive.files) {
+        if (!f.isFile) continue;
+        final raw     = f.content as List<int>;
+        final outName = '${const Uuid().v4()}_${f.name}';
+        final dir     = (await getTemporaryDirectory()).path;
+        final outPath = '$dir/$outName';
+        final outFile = File(outPath)..writeAsBytesSync(raw);
+
+        switch (type) {
+          case 'IMG_BEFORE_ZIP':
+            _photoBefore.add(outFile);
+            break;
+          case 'IMG_MILLING_AFTER_ZIP': // 服務端對應「刨除後」
+            _photoCut.add(outFile);
+            break;
+          case 'IMG_CUT_ZIP':
+            _photoCut.add(outFile);
+            break;
+          case 'IMG_DURING_ZIP':
+            _photoDuring.add(outFile);
+            break;
+          case 'IMG_AFTER_ZIP':
+            _photoAfter.add(outFile);
+            break;
+          default:
+            _photoOthers.add(outFile);
+        }
       }
     }
+    setState(() {});
   }
 
   /// 將 DispatchItem 的值注入各欄位
   void _populateFields(DispatchItem item) {
-    _caseIdController.text       = item.caseNum;
-    // 先透過 onProjectChanged 設定 prjId + prjName + districtOptions
+    _caseIdController.text = item.caseNum;
     _onProjectChanged(item.prjId);
-
     _villageController.text      = item.village;
     _dispatchDateController.text = DateFormat('yyyy-MM-dd').format(item.dispatchDate);
     _deadlineController.text     = DateFormat('yyyy-MM-dd').format(item.dueDate);
     _workDateController.text     = DateFormat('yyyy-MM-dd').format(item.workStartDate);
     _completeDateController.text = DateFormat('yyyy-MM-dd').format(item.workEndDate);
     _roadNameController.text     = item.address;
-
+    _startRoadNameController.text = item.startAddr;  // 新增：接收後端 START_ADDR
+    _endRoadNameController.text   = item.endAddr;
     _startGPSController.text     = '${item.startLng}, ${item.startLat}';
     _endGPSController.text       = '${item.endLng}, ${item.endLat}';
-
     _selectedMaterial            = item.material;
     _particleSizeController.text = item.materialSize.toString();
     _rangeLengthController.text  = item.workLength.toString();
@@ -202,11 +260,11 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
     _paveDepthController.text    = item.workDepthPaving.toString();
     _noteController.text         = item.remark;
 
-    // 清空 local 檔案，維持顯示 network 圖片
-    _photoBefore = null;
-    _photoCut    = null;
-    _photoDuring = null;
-    _photoAfter  = null;
+    // **清空**所有本地列表，保留网络图在 _existingXXXUrl
+    _photoBefore.clear();
+    _photoCut.clear();
+    _photoDuring.clear();
+    _photoAfter.clear();
     _photoOthers.clear();
   }
 
@@ -235,36 +293,31 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
 
   /// 取得標案列表
   /// 从后端取得标案列表，并根据已有 state 恢复选择
+  /// 第一次进入页面时，只取一次路由参数
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_hasInitArgs) return;
+
+    // 只取一次路由參數
+    final args = ModalRoute.of(context)?.settings.arguments;
+    _rawArgs = args;
+    _hasInitArgs = true;
+
+    // 只有「新增模式」（沒有任何 arguments）才自動抓起點 GPS
+    if (args == null) {
+      _onLocateGPS(_startGPSController);
+    }
+  }
+
+  /// 取得標案列表，並根據路由參數決定「新增 / 從伺服器編輯 / 本地重傳」
   Future<void> _fetchTenders() async {
     final appState = Provider.of<AppState>(context, listen: false);
     final resp = await http.get(
-      Uri.parse('http://211.23.157.201/api/get/tender'),
+      Uri.parse('${ApiConfig.baseUrl}/api/get/tender'),
       headers: {'Authorization': 'Bearer ${appState.token}'},
     );
-    if (resp.statusCode == 200) {
-      final raw  = jsonDecode(resp.body)['data'] as List<dynamic>;
-      final list = raw.map((e) => Tender.fromJson(e)).toList();
-      if (list.isNotEmpty) {
-        setState(() {
-          _tenders       = list;
-          // 預設選擇：編輯時用傳入的 prjId，否則第一筆
-          _selectedPrjId = _initialArgs?.prjId ?? list.first.prjId;
-          _onProjectChanged(_selectedPrjId!);
-        });
-        // 編輯回填
-        if (_initialArgs != null && !_hasInitFromArgs) {
-          _isEditMode   = true;
-          _editItem     = _initialArgs!;
-          _populateFields(_editItem);
-          _populateExistingImageUrls(_editItem);
-          if (_existingOtherZipUrl != null) {
-            await _loadOtherZipImages();
-          }
-          _hasInitFromArgs = true;
-        }
-
-      }
-    } else {
+    if (resp.statusCode != 200) {
       showDialog(
         context: context,
         builder: (c) => AlertDialog(
@@ -275,6 +328,127 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
           ],
         ),
       );
+      return;
+    }
+
+    final List<Tender> list = (jsonDecode(resp.body)['data'] as List)
+        .map((e) => Tender.fromJson(e))
+        .toList();
+    if (list.isEmpty) return;
+
+    setState(() {
+      _tenders = list;
+
+      // —— 1) 先設定 _selectedPrjId 與 _projectNameController.text ——
+      if (_rawArgs is DispatchItem) {
+        final item = _rawArgs as DispatchItem;
+        _isEditMode = true;
+        _editItem = item;
+        // 找到對應的 Tender
+        final tender = list.firstWhere(
+              (t) => t.prjId == item.prjId,
+          orElse: () => list.first,
+        );
+        _selectedPrjId = tender.prjId;
+        _projectNameController.text = tender.prjName;
+
+        // 行政區去重、並恢復 args 裡的選擇
+        _districtOptions = tender.districts.toSet().toList();
+        _selectedDistrict = _districtOptions.contains(item.district)
+            ? item.district
+            : (_districtOptions.isNotEmpty ? _districtOptions.first : null);
+        _districtController.text = _selectedDistrict ?? '';
+
+        // 里別直接用 args 裡的
+        _villageController.text = item.village;
+      }
+      else if (_rawArgs is UploadRecord) {
+        final rec = _rawArgs as UploadRecord;
+        _isEditMode = rec.isEditing;
+        final m = rec.body;
+
+        // 找到對應 Tender
+        final prjId = m['PRJ_ID']?.toString() ?? list.first.prjId;
+        final tender = list.firstWhere(
+              (t) => t.prjId == prjId,
+          orElse: () => list.first,
+        );
+        _selectedPrjId = tender.prjId;
+        _projectNameController.text = tender.prjName;
+
+        // 行政區去重、並恢復 rec.body 裡的 DISTRICT
+        _districtOptions = tender.districts.toSet().toList();
+        final recDist = m['DISTRICT']?.toString();
+        _selectedDistrict = (recDist != null && _districtOptions.contains(recDist))
+            ? recDist
+            : (_districtOptions.isNotEmpty ? _districtOptions.first : null);
+        _districtController.text = _selectedDistrict ?? '';
+
+        // 里別用 rec.body 裡的 CAVLGE
+        _villageController.text = m['CAVLGE']?.toString() ?? '';
+
+        // 其他文字欄位與本地圖片回填……
+        _caseIdController.text = (m['case_num'] as String?)?.isNotEmpty == true
+                 ? m['case_num']!
+                 : (m['caseNum'] as String?)?.toString() ?? '';
+        _dispatchDateController.text = m['DISPATCH_DATE'] ?? '';
+        _deadlineController.text     = m['DUE_DATE'] ?? '';
+        _workDateController.text     = m['WORK_START_DATE'] ?? '';
+        _completeDateController.text = m['WORK_END_DATE'] ?? '';
+        _roadNameController.text     = m['ADDRESS'] ?? '';
+        _startRoadNameController.text = m['START_ADDR']?.toString() ?? '';
+        _endRoadNameController.text   = m['END_ADDR']?.toString() ?? '';
+        _startGPSController.text     = '${m['START_LNG']}, ${m['START_LAT']}';
+        _endGPSController.text       = '${m['END_LNG']}, ${m['END_LAT']}';
+        _selectedMaterial            = m['MATERIAL'] ?? _selectedMaterial;
+        _particleSizeController.text = m['MATERIAL_SIZE'] ?? '';
+        _rangeLengthController.text  = m['WORK_LENGTH'] ?? '';
+        _rangeWidthController.text   = m['WORK_WIDTH'] ?? '';
+        _cutDepthController.text     = m['WORK_DEPTH_MILLING'] ?? '';
+        _paveDepthController.text    = m['WORK_DEPTH_PAVING'] ?? '';
+        _noteController.text         = m['REMARK'] ?? '';
+
+        // 回填本地圖片
+        _photoBefore.clear();
+        _photoCut.clear();
+        _photoDuring.clear();
+        _photoAfter.clear();
+        _photoOthers.clear();
+        rec.filePathMap?.forEach((key, path) {
+          final f = File(path);
+          if (key.startsWith('IMG_BEFORE'))     _photoBefore.add(f);
+          else if (key.startsWith('IMG_MILLING_AFTER')
+                 || key.startsWith('IMG_CUT')) {
+             _photoCut.add(f);
+          }
+          else if (key.startsWith('IMG_DURING'))_photoDuring.add(f);
+          else if (key.startsWith('IMG_AFTER')) _photoAfter.add(f);
+          else if (key.startsWith('IMG_OTHER')) _photoOthers.add(f);
+        });
+      }
+      else {
+        // 新增模式：選第一筆
+        _isEditMode = false;
+        final tender = list.first;
+        _selectedPrjId = tender.prjId;
+        _projectNameController.text = tender.prjName;
+        _districtOptions = tender.districts.toSet().toList();
+        _selectedDistrict = _districtOptions.isNotEmpty ? _districtOptions.first : null;
+        _districtController.text = _selectedDistrict ?? '';
+        // 里別透過 GPS/API 自動填入即可，不用這邊處理
+      }
+
+      // 套用 dropdown 與 district text
+      _onProjectChanged(_selectedPrjId!);
+    });
+
+    // 如果是「從伺服器編輯」還要跑一次影像解包
+    if (_rawArgs is DispatchItem) {
+      final item = _rawArgs as DispatchItem;
+      // 填一次文字欄位（因為 _onProjectChanged 只處理案名＋行政區）
+      _populateFields(item);
+      // 網路圖打包解壓
+      await _populateExistingImageUrls(item);
     }
   }
 
@@ -283,6 +457,7 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
+      locale: const Locale('zh', 'TW'),
       initialDate: now,
       firstDate: DateTime(now.year - 5),
       lastDate: DateTime(now.year + 5),
@@ -296,70 +471,47 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
 
   // ------------------ 拍照/選圖 ------------------
   Future<void> _pickPhotoDialog(String title) async {
-    if (title == '其他') {
-      final List<XFile>? files = await _picker.pickMultiImage();
-      if (files != null && files.isNotEmpty) {
-        setState(() {
-          for (var f in files) {
-            _photoOthers.add(File(f.path));
-          }
-        });
+    final List<XFile>? files = await _picker.pickMultiImage();
+    if (files == null || files.isEmpty) return;
+    setState(() {
+      switch (title) {
+        case '施工前':
+          _photoBefore.addAll(files.map((f) => File(f.path)));
+          break;
+        case '刨除後':
+          _photoCut.addAll(files.map((f) => File(f.path)));
+          break;
+        case '施工中':
+          _photoDuring.addAll(files.map((f) => File(f.path)));
+          break;
+        case '施工後':
+          _photoAfter.addAll(files.map((f) => File(f.path)));
+          break;
+        case '其他':
+          _photoOthers.addAll(files.map((f) => File(f.path)));
+          break;
       }
-    } else {
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: Text(title),
-          content: const Text('選擇來源'),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                final XFile? file = await _picker.pickImage(source: ImageSource.camera);
-                if (file != null) {
-                  setState(() {
-                    _assignPhoto(title, File(file.path));
-                  });
-                }
-              },
-              child: const Text('拍照'),
-            ),
-            TextButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                final XFile? file = await _picker.pickImage(source: ImageSource.gallery);
-                if (file != null) {
-                  setState(() {
-                    _assignPhoto(title, File(file.path));
-                  });
-                }
-              },
-              child: const Text('相簿'),
-            ),
-          ],
-        ),
-      );
-    }
+    });
   }
 
-  void _assignPhoto(String title, File file) {
-    switch (title) {
-      case '施工前':
-        _photoBefore = file;
-        break;
-      case '刨除後':
-        _photoCut = file;
-        break;
-      case '施工中':
-        _photoDuring = file;
-        break;
-      case '施工後':
-        _photoAfter = file;
-        break;
-      default:
-        break;
-    }
-  }
+  // void _assignPhoto(String title, File file) {
+  //   switch (title) {
+  //     case '施工前':
+  //       _photoBefore = file;
+  //       break;
+  //     case '刨除後':
+  //       _photoCut = file;
+  //       break;
+  //     case '施工中':
+  //       _photoDuring = file;
+  //       break;
+  //     case '施工後':
+  //       _photoAfter = file;
+  //       break;
+  //     default:
+  //       break;
+  //   }
+  // }
 
   // ------------------ GPS 功能 ------------------
   Future<void> _onEditGPS(TextEditingController gpsController, {bool fetchVillage = false}) async {
@@ -457,187 +609,427 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
 
   // ------------------ 上傳 API ------------------
   /// 统一处理 POST（新增）/PATCH（编辑）上傳
-  Future<void> _uploadData() async {
-    final appState = Provider.of<AppState>(context, listen: false);
-    final method   = _isEditMode ? 'PATCH' : 'POST';
-    final uri      = Uri.parse('http://211.23.157.201/api/app/workorder/repairDispatch');
-    final req      = http.MultipartRequest(method, uri)
-      ..headers['Authorization'] = 'Bearer ${appState.token}';
+  // Future<void> _uploadData() async {
+  //   final appState = Provider.of<AppState>(context, listen: false);
+  //   final method   = _isEditMode ? 'PATCH' : 'POST';
+  //   final uri      = Uri.parse('http://211.23.157.201/api/app/workorder/repairDispatch');
+  //   final req      = http.MultipartRequest(method, uri)
+  //     ..headers['Authorization'] = 'Bearer ${appState.token}';
+  //
+  //   // 1) 組欄位
+  //   final Map<String, String> fields = {};
+  //   if (_isEditMode) {
+  //     fields['ID'] = _editItem.id.toString();
+  //   }
+  //   fields['PRJ_ID'] = _selectedPrjId ?? '';
+  //   fields['TYPE']   = 'PA';
+  //
+  //   // 解析 GPS
+  //   double sl=0, sa=0, el=0, ea=0;
+  //   if (_startGPSController.text.contains(',')) {
+  //     final p = _startGPSController.text.split(',');
+  //     sl = double.tryParse(p[0].trim()) ?? 0;
+  //     sa = double.tryParse(p[1].trim()) ?? 0;
+  //   }
+  //   if (_endGPSController.text.contains(',')) {
+  //     final p = _endGPSController.text.split(',');
+  //     el = double.tryParse(p[0].trim()) ?? 0;
+  //     ea = double.tryParse(p[1].trim()) ?? 0;
+  //   }
+  //
+  //   fields.addAll({
+  //     'DISPATCH_DATE':    _dispatchDateController.text,
+  //     'DUE_DATE':         _deadlineController.text,
+  //     'DISTRICT':         _selectedDistrict ?? '',
+  //     'CAVLGE':           _villageController.text,
+  //     'ADDRESS':          _roadNameController.text,
+  //     'WORK_START_DATE':  _workDateController.text,
+  //     'WORK_END_DATE':    _completeDateController.text,
+  //     'START_LNG':        sl.toString(),
+  //     'START_LAT':        sa.toString(),
+  //     'END_LNG':          el.toString(),
+  //     'END_LAT':          ea.toString(),
+  //     'MATERIAL':         _selectedMaterial,
+  //     'MATERIAL_SIZE':    _particleSizeController.text,
+  //     'WORK_LENGTH':      _rangeLengthController.text,
+  //     'WORK_WIDTH':       _rangeWidthController.text,
+  //     'WORK_DEPTH_MILLING': _cutDepthController.text,
+  //     'WORK_DEPTH_PAVING':  _paveDepthController.text,
+  //     'REMARK':           _noteController.text,
+  //   });
+  //   req.fields.addAll(fields);
+  //
+  //   // 2) 四張主圖打包成 IMG_ZIP
+  //   final mainArc = Archive();
+  //   void addMain(File? f, String name) {
+  //     if (f != null) mainArc.addFile(ArchiveFile(name, f.lengthSync(), f.readAsBytesSync()));
+  //   }
+  //   addMain(_photoBefore, 'IMG_BEFORE.jpg');
+  //   addMain(_photoCut,    'IMG_CUT.jpg');
+  //   addMain(_photoDuring, 'IMG_DURING.jpg');
+  //   addMain(_photoAfter,  'IMG_AFTER.jpg');
+  //   if (mainArc.isNotEmpty) {
+  //     final data = ZipEncoder().encode(mainArc)!;
+  //     req.files.add(
+  //       http.MultipartFile.fromBytes(
+  //         'IMG_ZIP',
+  //         data,
+  //         filename: 'IMG.zip',
+  //         contentType: MediaType('application', 'zip'),
+  //       ),
+  //     );
+  //   }
+  //
+  //   // 3) 其它照片打包
+  //   final otherArc = Archive();
+  //   for (int i = 0; i < _photoOthers.length; i++) {
+  //     final name = 'IMG_OTHER_${(i + 1).toString().padLeft(2, '0')}.jpg';
+  //     otherArc.addFile(
+  //         ArchiveFile(name, _photoOthers[i].lengthSync(), _photoOthers[i].readAsBytesSync())
+  //     );
+  //   }
+  //   if (otherArc.isNotEmpty) {
+  //     final data = ZipEncoder().encode(otherArc)!;
+  //     req.files.add(
+  //       http.MultipartFile.fromBytes(
+  //         'IMG_OTHER_ZIP',
+  //         data,
+  //         filename: 'IMG_OTHER.zip',
+  //         contentType: MediaType('application', 'zip'),
+  //       ),
+  //     );
+  //   }
+  //   // —— 在這裡加上 debug prints ——
+  //   print('==== UPLOAD DEBUG ====');
+  //   print('Method: $method');
+  //   print('URL: $uri');
+  //   print('Fields:');
+  //   fields.forEach((k, v) => print('  $k: $v'));
+  //   print('Files to upload:');
+  //   for (var f in req.files) {
+  //     print('  fieldName: ${f.field}, filename: ${f.filename}, length: ${f.length}');
+  //   }
+  //   print('=======================');
+  //
+  //   // 4) 發送並處理回應
+  //   try {
+  //     final streamed = await req.send();
+  //     final respBody = await streamed.stream.bytesToString();
+  //
+  //     if (streamed.statusCode == 200) {
+  //       // 解析 JSON
+  //       final Map<String, dynamic> respJson = jsonDecode(respBody);
+  //
+  //       if (respJson['status'] == true) {
+  //         // 真正的成功
+  //         showDialog(
+  //           context: context,
+  //           builder: (_) => AlertDialog(
+  //             title: const Text('上傳成功'),
+  //             content: const Text('派工單已成功傳送'),
+  //             actions: [
+  //               TextButton(
+  //                 onPressed: () => Navigator.pop(context),
+  //                 child: const Text('確定'),
+  //               ),
+  //             ],
+  //           ),
+  //         );
+  //       } else {
+  //         // 200 但 status=false
+  //         _showErrorDialog(
+  //           streamed.statusCode,
+  //           '後端回傳 status=false\nmessage: ${respJson['message']}\nbody: $respBody',
+  //           fields,
+  //           mainArc.files.map((e) => e.name).toList(),
+  //           otherArc,
+  //         );
+  //       }
+  //     } else {
+  //       // HTTP 非 200
+  //       _showErrorDialog(
+  //         streamed.statusCode,
+  //         respBody,
+  //         fields,
+  //         mainArc.files.map((e) => e.name).toList(),
+  //         otherArc,
+  //       );
+  //     }
+  //   } catch (e) {
+  //     showDialog(
+  //       context: context,
+  //       builder: (_) => AlertDialog(
+  //         title: const Text('上傳例外'),
+  //         content: Text('例外：$e'),
+  //         actions: [
+  //           TextButton(
+  //             onPressed: () => Navigator.pop(context),
+  //             child: const Text('確定'),
+  //           ),
+  //         ],
+  //       ),
+  //     );
+  //   }
+  // }
+  //
+  // /// 上传失败时弹窗（可选 helper）
+  // void _showErrorDialog(int code, String body, Map<String,String> fields, List<String> mainNames, Archive otherA) {
+  //   final buf=StringBuffer()
+  //     ..writeln('狀態：$code')
+  //     ..writeln('\n── 表單欄位 ──');
+  //   fields.forEach((k,v)=>buf.writeln('$k: $v'));
+  //   if (mainNames.isNotEmpty) buf..writeln('\n── IMG.zip 包含 ──')..writeln(mainNames.join(', '));
+  //   if (otherA.isNotEmpty) buf..writeln('\n── IMG_OTHER.zip 包含 ──')..writeln(otherA.files.map((f)=>f.name).join(', '));
+  //   buf..writeln('\n── 伺服器回傳 ──')..writeln(body);
+  //   showDialog(context: context, builder: (_) => AlertDialog(
+  //     title: const Text('上傳失敗'),
+  //     content: SingleChildScrollView(child: Text(buf.toString())),
+  //     actions: [ TextButton(onPressed: ()=>Navigator.pop(context), child: const Text('確定')) ],
+  //   ));
+  // }
+  //
+  // void _onSaveUpload() {
+  //   _uploadData();
+  // }
+  // Future<String> _downloadAndCache(String url, String prefix) async {
+  //   final resp = await http.get(Uri.parse(url));
+  //   final dir  = await getApplicationDocumentsDirectory();
+  //   final file= File('${dir.path}/$prefix-${const Uuid().v4()}.jpg');
+  //   await file.writeAsBytes(resp.bodyBytes);
+  //   return file.path;
+  // }
+  Future<String> _downloadToTemp(String url) async {
+    final resp = await http.get(Uri.parse(url));
+    final dir  = await getTemporaryDirectory();
+    // 保留副檔名，方便 ZipDecoder 辨識
+    final ext = url.contains('.') ? url.substring(url.lastIndexOf('.')) : '';
+    final file = File('${dir.path}/${const Uuid().v4()}$ext');
+    await file.writeAsBytes(resp.bodyBytes);
+    return file.path;
+  }
 
-    // 1) 組欄位
-    final Map<String, String> fields = {};
-    if (_isEditMode) {
-      fields['ID'] = _editItem.id.toString();
-    }
-    fields['PRJ_ID'] = _selectedPrjId ?? '';
-    fields['TYPE']   = 'PA';
+  Future<void> _onSaveUpload() async {
+    final List<String> missingFields = [];
 
-    // 解析 GPS
-    double sl=0, sa=0, el=0, ea=0;
-    if (_startGPSController.text.contains(',')) {
-      final p = _startGPSController.text.split(',');
-      sl = double.tryParse(p[0].trim()) ?? 0;
-      sa = double.tryParse(p[1].trim()) ?? 0;
+    // PRJ_ID（標案）
+    if (_selectedPrjId == null || _selectedPrjId!.isEmpty) {
+      missingFields.add('標案名稱');
     }
-    if (_endGPSController.text.contains(',')) {
-      final p = _endGPSController.text.split(',');
-      el = double.tryParse(p[0].trim()) ?? 0;
-      ea = double.tryParse(p[1].trim()) ?? 0;
+    // TYPE（在這支程式裡固定 'PA'，理論上先前必然有設定，這裡可略過）
+    // WORKER_USER_ID（本範例硬寫為 'APP'，若改為動態請一併檢查）
+    // DispatchDate（派工日期）
+    if (_dispatchDateController.text.trim().isEmpty) {
+      missingFields.add('派工日期');
     }
-
-    fields.addAll({
-      'DISPATCH_DATE':    _dispatchDateController.text,
-      'DUE_DATE':         _deadlineController.text,
-      'DISTRICT':         _selectedDistrict ?? '',
-      'CAVLGE':           _villageController.text,
-      'ADDRESS':          _roadNameController.text,
-      'WORK_START_DATE':  _workDateController.text,
-      'WORK_END_DATE':    _completeDateController.text,
-      'START_LNG':        sl.toString(),
-      'START_LAT':        sa.toString(),
-      'END_LNG':          el.toString(),
-      'END_LAT':          ea.toString(),
-      'MATERIAL':         _selectedMaterial,
-      'MATERIAL_SIZE':    _particleSizeController.text,
-      'WORK_LENGTH':      _rangeLengthController.text,
-      'WORK_WIDTH':       _rangeWidthController.text,
-      'WORK_DEPTH_MILLING': _cutDepthController.text,
-      'WORK_DEPTH_PAVING':  _paveDepthController.text,
-      'REMARK':           _noteController.text,
-    });
-    req.fields.addAll(fields);
-
-    // 2) 四張主圖打包成 IMG_ZIP
-    final mainArc = Archive();
-    void addMain(File? f, String name) {
-      if (f != null) mainArc.addFile(ArchiveFile(name, f.lengthSync(), f.readAsBytesSync()));
+    // DISTRICT（行政區）
+    if (_districtController.text.trim().isEmpty) {
+      missingFields.add('行政區');
     }
-    addMain(_photoBefore, 'IMG_BEFORE.jpg');
-    addMain(_photoCut,    'IMG_CUT.jpg');
-    addMain(_photoDuring, 'IMG_DURING.jpg');
-    addMain(_photoAfter,  'IMG_AFTER.jpg');
-    if (mainArc.isNotEmpty) {
-      final data = ZipEncoder().encode(mainArc)!;
-      req.files.add(
-        http.MultipartFile.fromBytes(
-          'IMG_ZIP',
-          data,
-          filename: 'IMG.zip',
-          contentType: MediaType('application', 'zip'),
-        ),
-      );
+    // CAVLGE（里別）
+    if (_villageController.text.trim().isEmpty) {
+      missingFields.add('里別');
     }
-
-    // 3) 其它照片打包
-    final otherArc = Archive();
-    for (int i = 0; i < _photoOthers.length; i++) {
-      final name = 'IMG_OTHER_${(i + 1).toString().padLeft(2, '0')}.jpg';
-      otherArc.addFile(
-          ArchiveFile(name, _photoOthers[i].lengthSync(), _photoOthers[i].readAsBytesSync())
-      );
+    // ADDRESS（施工地點）
+    if (_roadNameController.text.trim().isEmpty) {
+      missingFields.add('施工地點');
     }
-    if (otherArc.isNotEmpty) {
-      final data = ZipEncoder().encode(otherArc)!;
-      req.files.add(
-        http.MultipartFile.fromBytes(
-          'IMG_OTHER_ZIP',
-          data,
-          filename: 'IMG_OTHER.zip',
-          contentType: MediaType('application', 'zip'),
-        ),
-      );
-    }
-    // —— 在這裡加上 debug prints ——
-    print('==== UPLOAD DEBUG ====');
-    print('Method: $method');
-    print('URL: $uri');
-    print('Fields:');
-    fields.forEach((k, v) => print('  $k: $v'));
-    print('Files to upload:');
-    for (var f in req.files) {
-      print('  fieldName: ${f.field}, filename: ${f.filename}, length: ${f.length}');
-    }
-    print('=======================');
-
-    // 4) 發送並處理回應
-    try {
-      final streamed = await req.send();
-      final respBody = await streamed.stream.bytesToString();
-
-      if (streamed.statusCode == 200) {
-        // 解析 JSON
-        final Map<String, dynamic> respJson = jsonDecode(respBody);
-
-        if (respJson['status'] == true) {
-          // 真正的成功
-          showDialog(
-            context: context,
-            builder: (_) => AlertDialog(
-              title: const Text('上傳成功'),
-              content: const Text('派工單已成功傳送'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('確定'),
-                ),
-              ],
-            ),
-          );
-        } else {
-          // 200 但 status=false
-          _showErrorDialog(
-            streamed.statusCode,
-            '後端回傳 status=false\nmessage: ${respJson['message']}\nbody: $respBody',
-            fields,
-            mainArc.files.map((e) => e.name).toList(),
-            otherArc,
-          );
-        }
-      } else {
-        // HTTP 非 200
-        _showErrorDialog(
-          streamed.statusCode,
-          respBody,
-          fields,
-          mainArc.files.map((e) => e.name).toList(),
-          otherArc,
-        );
+    // 起點經緯度
+    final startGps = _startGPSController.text.trim();
+    if (startGps.isEmpty || !startGps.contains(',') || startGps.split(',').length < 2) {
+      missingFields.add('起點 GPS 定位');
+    } else {
+      final parts = startGps.split(',');
+      if (double.tryParse(parts[0].trim()) == null || double.tryParse(parts[1].trim()) == null) {
+        missingFields.add('起點 GPS 定位');
       }
-    } catch (e) {
+    }
+    // 迄點經緯度
+    final endGps = _endGPSController.text.trim();
+    if (endGps.isEmpty || !endGps.contains(',') || endGps.split(',').length < 2) {
+      missingFields.add('迄點 GPS 定位');
+    } else {
+      final parts = endGps.split(',');
+      if (double.tryParse(parts[0].trim()) == null || double.tryParse(parts[1].trim()) == null) {
+        missingFields.add('迄點 GPS 定位');
+      }
+    }
+    // WORK_DATE（施工日期）
+    if (_workDateController.text.trim().isEmpty) {
+      missingFields.add('施工日期');
+    }
+    // COMPLETE_DATE（完工日期）
+    if (_completeDateController.text.trim().isEmpty) {
+      missingFields.add('完工日期');
+    }
+    // DUE_DATE（施工期限）
+    if (_deadlineController.text.trim().isEmpty) {
+      missingFields.add('施工期限');
+    }
+    // → 新增：施工範圍（長）
+    if (_rangeLengthController.text.trim().isEmpty) {
+      missingFields.add('施工範圍（長）');
+    }
+    // → 新增：施工範圍（寬）
+    if (_rangeWidthController.text.trim().isEmpty) {
+      missingFields.add('施工範圍（寬）');
+    }
+    // → 新增：深度（刨除）
+    if (_cutDepthController.text.trim().isEmpty) {
+      missingFields.add('刨除深度');
+    }
+    // → 新增：深度（鋪設）
+    if (_paveDepthController.text.trim().isEmpty) {
+      missingFields.add('鋪設深度');
+    }
+
+    // 如果有缺少欄位，跳提示框並中斷
+    if (missingFields.isNotEmpty) {
+      final content = missingFields.join('、');
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text('上傳例外'),
-          content: Text('例外：$e'),
+          title: const Text('資料不完整'),
+          content: Text('請填寫以下欄位：\n$content'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.of(context).pop(),
               child: const Text('確定'),
             ),
           ],
         ),
       );
+      return;
     }
-  }
 
-  /// 上传失败时弹窗（可选 helper）
-  void _showErrorDialog(int code, String body, Map<String,String> fields, List<String> mainNames, Archive otherA) {
-    final buf=StringBuffer()
-      ..writeln('狀態：$code')
-      ..writeln('\n── 表單欄位 ──');
-    fields.forEach((k,v)=>buf.writeln('$k: $v'));
-    if (mainNames.isNotEmpty) buf..writeln('\n── IMG.zip 包含 ──')..writeln(mainNames.join(', '));
-    if (otherA.isNotEmpty) buf..writeln('\n── IMG_OTHER.zip 包含 ──')..writeln(otherA.files.map((f)=>f.name).join(', '));
-    buf..writeln('\n── 伺服器回傳 ──')..writeln(body);
-    showDialog(context: context, builder: (_) => AlertDialog(
-      title: const Text('上傳失敗'),
-      content: SingleChildScrollView(child: Text(buf.toString())),
-      actions: [ TextButton(onPressed: ()=>Navigator.pop(context), child: const Text('確定')) ],
-    ));
-  }
+    // ---- 2️⃣ 日期順序檢查：派工日期 <= 施工日期 <= 完工日期 <= 施工期限 ----
+    DateTime? dispatchDate;
+    DateTime? workDate;
+    DateTime? completeDate;
+    DateTime? dueDate;
+    try {
+      dispatchDate = DateFormat('yyyy-MM-dd').parse(_dispatchDateController.text.trim());
+      workDate     = DateFormat('yyyy-MM-dd').parse(_workDateController.text.trim());
+      completeDate = DateFormat('yyyy-MM-dd').parse(_completeDateController.text.trim());
+      dueDate      = DateFormat('yyyy-MM-dd').parse(_deadlineController.text.trim());
+    } catch (e) {
+      // 若解析失敗，視為格式不符
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('日期格式錯誤'),
+          content: const Text('請確認所有日期格式均為 yyyy-MM-dd'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('確定'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
 
-  void _onSaveUpload() {
-    _uploadData();
+    // 檢查順序
+    if (!(dispatchDate.isBefore(workDate) || dispatchDate.isAtSameMomentAs(workDate)) ||
+        !(workDate.isBefore(completeDate) || workDate.isAtSameMomentAs(completeDate)) ||
+        !(completeDate.isBefore(dueDate) || completeDate.isAtSameMomentAs(dueDate))) {
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('日期順序錯誤'),
+          content: const Text('請確保：\n派工日期 ≤ 施工日期 ≤ 完工日期 ≤ 施工期限'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('確定'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // ---- 3️⃣ 全部檢查通過後，進入既有的 UploadRecord 建立與 enqueue 流程 ----
+    // 1. 組 body
+    final body = <String, dynamic>{
+      // 'WORKER_USER_ID': context.read<AppState>().userId,
+      'WORKER_USER_ID': 'APP',
+      'case_num':        _caseIdController.text,
+      'TYPE':            'PA',
+      'PRJ_ID':          _selectedPrjId ?? '',
+      'DISPATCH_DATE':   _dispatchDateController.text,
+      'DUE_DATE':        _deadlineController.text,
+      'DISTRICT':        _districtController.text,
+      'CAVLGE':          _villageController.text,
+      'ADDRESS':         _roadNameController.text,
+      'START_ADDR':      _startRoadNameController.text,  // 新增：傳送至後端
+      'END_ADDR':        _endRoadNameController.text,
+      'WORK_START_DATE': _workDateController.text,
+      'WORK_END_DATE':   _completeDateController.text,
+      'START_LNG':       _startGPSController.text.split(',')[0].trim(),
+      'START_LAT':       _startGPSController.text.split(',')[1].trim(),
+      'END_LNG':         _endGPSController.text.split(',')[0].trim(),
+      'END_LAT':         _endGPSController.text.split(',')[1].trim(),
+      'MATERIAL':        _selectedMaterial,
+      'MATERIAL_SIZE':   _particleSizeController.text,
+      'WORK_LENGTH':     _rangeLengthController.text,
+      'WORK_WIDTH':      _rangeWidthController.text,
+      'WORK_DEPTH_MILLING': _cutDepthController.text,
+      'WORK_DEPTH_PAVING':  _paveDepthController.text,
+      'REMARK':         _noteController.text,
+    };
+    if (_rawArgs is UploadRecord) {
+      final orig = _rawArgs as UploadRecord;
+      // 優先用原身上的 ID，否則 fallback case_num
+      final idVal = orig.body['ID'];
+      if (idVal != null && idVal.toString().isNotEmpty) {
+        body['ID'] = idVal.toString();
+      }
+    }
+    else if (_rawArgs is DispatchItem) {
+      // 從伺服器編輯模式，取 DispatchItem.id
+      body['ID'] = _editItem.id.toString();
+    }
+
+    // 2. 把每個階段的所有照片都編號放進 fileMap
+    final fileMap = <String, String>{};
+
+    // 「施工前」(IMG_BEFORE_ZIP)
+    for (var i = 0; i < _photoBefore.length; i++) {
+      fileMap['IMG_BEFORE_${i + 1}.jpg'] = _photoBefore[i].path;
+    }
+
+    // 「刨除後」(IMG_MILLING_AFTER_ZIP)
+    for (var i = 0; i < _photoCut.length; i++) {
+      fileMap['IMG_MILLING_AFTER_${i + 1}.jpg'] = _photoCut[i].path;
+    }
+
+    // 「施工中」(IMG_DURING_ZIP)
+    for (var i = 0; i < _photoDuring.length; i++) {
+      fileMap['IMG_DURING_${i + 1}.jpg'] = _photoDuring[i].path;
+    }
+
+    // 「施工後」(IMG_AFTER_ZIP)
+    for (var i = 0; i < _photoAfter.length; i++) {
+      fileMap['IMG_AFTER_${i + 1}.jpg'] = _photoAfter[i].path;
+    }
+
+    // 「其他照片」(IMG_OTHER_ZIP)
+    for (var i = 0; i < _photoOthers.length; i++) {
+      fileMap['IMG_OTHER_${(i + 1).toString().padLeft(2, '0')}.jpg'] = _photoOthers[i].path;
+    }
+
+    // 3. 建 UploadRecord 並加入背景上傳佇列
+    final rec = UploadRecord(
+      body:      body,
+      isEditing: _isEditMode,
+      filePathMap: fileMap,
+    );
+    UploadService.enqueue(context, rec);
+
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('已加入上傳佇列，背景上傳中')));
+    Navigator.pushReplacementNamed(context, '/uploadList');
   }
 
   // ------------------ UI 建構 ------------------
@@ -1002,123 +1394,12 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
               ),
             ),
             // 1. 照片(施工前) 與 (刨除後) 改成獨立欄位：
-            Row(
-              children: [
-                Expanded(
-                  child: _buildField(
-                    label: '照片(施工前)',
-                    child: Column(
-                      children: [
-                        IconButton(
-                          onPressed: () => _pickPhotoDialog('施工前'),
-                          icon: const Icon(Icons.camera_alt, color: Color(0xFF003D79)),
-                        ),
-                        _photoBefore != null
-                            ? Image.file(_photoBefore!, height: 60)
-                            : (_existingBeforeUrl != null
-                            ? Image.network(_existingBeforeUrl!, height: 60)
-                            : const Text('點擊拍照/相簿', style: TextStyle(color: Colors.grey))
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _buildField(
-                    label: '照片(刨除後)',
-                    child: Column(
-                      children: [
-                        IconButton(
-                          onPressed: () => _pickPhotoDialog('刨除後'),
-                          icon: const Icon(Icons.camera_alt, color: Color(0xFF003D79)),
-                        ),
-                        _photoCut != null
-                            ? Image.file(_photoCut!, height: 60)
-                            : (_existingCutUrl != null
-                            ? Image.network(_existingCutUrl!, height: 60)
-                            : const Text('點擊拍照/相簿', style: TextStyle(color: Colors.grey))
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            // 2. 照片(施工中) 與 (施工後) 改成獨立欄位：
-            Row(
-              children: [
-                Expanded(
-                  child: _buildField(
-                    label: '照片(施工中)',
-                    child: Column(
-                      children: [
-                        IconButton(
-                          onPressed: () => _pickPhotoDialog('施工中'),
-                          icon: const Icon(Icons.camera_alt, color: Color(0xFF003D79)),
-                        ),
-                        _photoDuring != null
-                            ? Image.file(_photoDuring!, height: 60)
-                            : (_existingDuringUrl != null
-                            ? Image.network(_existingDuringUrl!, height: 60)
-                            : const Text('點擊拍照/相簿', style: TextStyle(color: Colors.grey))
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _buildField(
-                    label: '照片(施工後)',
-                    child: Column(
-                      children: [
-                        IconButton(
-                          onPressed: () => _pickPhotoDialog('施工後'),
-                          icon: const Icon(Icons.camera_alt, color: Color(0xFF003D79)),
-                        ),
-                        _photoAfter != null
-                            ? Image.file(_photoAfter!, height: 60)
-                            : (_existingAfterUrl != null
-                            ? Image.network(_existingAfterUrl!, height: 60)
-                            : const Text('點擊拍照/相簿', style: TextStyle(color: Colors.grey))
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            // 17) 照片(其他)
-            _buildField(
-              label: '照片(其他)',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      // 顯示解壓後的舊圖
-                      for (final bytes in _existingOtherImages)
-                        Image.memory(bytes, height: 60),
-                      // 顯示使用者自己再拍或選的
-                      for (final file in _photoOthers)
-                        Image.file(file, height: 60),
-                      // 加號按鈕
-                      InkWell(
-                        onTap: () => _pickPhotoDialog('其他'),
-                        child: Container(
-                          width: 60, height: 60,
-                          color: Colors.grey[300],
-                          child: const Icon(Icons.add, color: Colors.white),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+            // 照片區：先顯示本地解包＆使用者新拍，再加號
+            _buildPhotoSection('照片(施工前)', _photoBefore, () => _pickPhotoDialog('施工前')),
+            _buildPhotoSection('照片(刨除後)', _photoCut,    () => _pickPhotoDialog('刨除後')),
+            _buildPhotoSection('照片(施工中)', _photoDuring, () => _pickPhotoDialog('施工中')),
+            _buildPhotoSection('照片(施工後)', _photoAfter,  () => _pickPhotoDialog('施工後')),
+            _buildPhotoSection('照片(其他)',   _photoOthers, () => _pickPhotoDialog('其他')),
             const SizedBox(height: 24),
             // 18) 儲存上傳按鈕
             SizedBox(
@@ -1148,6 +1429,57 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
   }
 
   // ------------------ 共用：欄位容器 ------------------
+  /// 改寫後的 _buildPhotoSection：
+  /// - files: 圖片檔案列表
+  /// - onTapAdd: 點「+」時呼叫
+  Widget _buildPhotoSection(String label, List<File> files, VoidCallback onTapAdd) {
+    return _buildField(
+      label: label,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          // 先渲染每張圖，並加上刪除按鈕
+          for (int i = 0; i < files.length; i++)
+            Stack(
+              children: [
+                // 圖片本身
+                Image.file(files[i], height: 60, width: 60, fit: BoxFit.cover),
+                // 右上角的「X」
+                Positioned(
+                  right: -4,
+                  top: -4,
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        files.removeAt(i);
+                      });
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.close, size: 16, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          // 最後一格永遠是一個「+」按鈕
+          InkWell(
+            onTap: onTapAdd,
+            child: Container(
+              width: 60, height: 60,
+              color: Colors.grey[300],
+              child: const Icon(Icons.add, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildField({
     required String label,
     required Widget child,

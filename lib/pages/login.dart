@@ -4,107 +4,95 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../app_state.dart';
+import '../components/config.dart';
 
 class Company {
   final int id;
   final String key;
   final String name;
-
   Company({required this.id, required this.key, required this.name});
-
-  factory Company.fromJson(Map<String, dynamic> json) {
-    return Company(
-      id: json['id'],
-      key: json['key'],
-      name: json['name'],
-    );
-  }
+  factory Company.fromJson(Map<String, dynamic> j) => Company(
+    id: j['id'],
+    key: j['key'],
+    name: j['name'],
+  );
 }
 
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
-
   @override
   _LoginPageState createState() => _LoginPageState();
 }
 
 class _LoginPageState extends State<LoginPage> {
-  // 輸入控制器
-  final TextEditingController _companyCodeController = TextEditingController();
+  final _companyCodeController = TextEditingController();
   Company? _selectedCompany;
-  final TextEditingController _accountController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+  final _accountController = TextEditingController();
+  final _passwordController = TextEditingController();
 
-  // 公司資料列表
   List<Company> _companies = [];
-  List<Company> _filteredCompanies = [];
+  List<Company> _filtered = [];
 
   @override
   void initState() {
     super.initState();
+    // 1) 先拉公司列表，再載入本機存的憑證
     fetchCompanies().then((_) => _loadSavedCredentials());
     _companyCodeController.addListener(_filterCompanies);
-    _checkSavedToken();
+    // 2) 延後一幀再檢查 token 是否有效
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkSavedToken());
   }
-
 
   Future<void> _loadSavedCredentials() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedKey = prefs.getString('companyKey');
-    final savedAccount  = prefs.getString('account');
-    final savedPassword = prefs.getString('password');
+    final key   = prefs.getString('companyKey');
+    final acc   = prefs.getString('account');
+    final pwd   = prefs.getString('password');
 
-    if (savedKey != null && _companies.isNotEmpty) {
-      _companyCodeController.text = savedKey;
-
-      // 這裡 orElse 不再回傳 null，而是回傳 _companies.first
-      final match = _companies.firstWhere(
-            (c) => c.key == savedKey,
+    if (key != null && _companies.isNotEmpty) {
+      _companyCodeController.text = key;
+      _selectedCompany = _companies.firstWhere(
+            (c) => c.key == key,
         orElse: () => _companies.first,
       );
-
-      setState(() {
-        _selectedCompany = match;
-      });
+      setState(() {}); // 更新 dropdown
     }
-
-    if (savedAccount != null)  _accountController.text  = savedAccount;
-    if (savedPassword != null) _passwordController.text = savedPassword;
+    if (acc != null) _accountController.text = acc;
+    if (pwd != null) _passwordController.text = pwd;
   }
 
   Future<void> _checkSavedToken() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedToken = prefs.getString('token');
-    final expireTs = prefs.getInt('expire');
-    if (savedToken != null && expireTs != null) {
-      final expiration = DateTime.fromMillisecondsSinceEpoch(expireTs);
-      if (DateTime.now().isBefore(expiration)) {
-        final refreshed = await _refreshToken(savedToken);
-        if (refreshed) {
+    final token = prefs.getString('token');
+    final expMs  = prefs.getInt('expire');
+    if (token != null && expMs != null) {
+      final exp = DateTime.fromMillisecondsSinceEpoch(expMs);
+      if (DateTime.now().isBefore(exp)) {
+        final ok = await _refreshToken(token);
+        if (ok && mounted) {
           Navigator.pushReplacementNamed(context, '/home');
-          return;
         }
       }
     }
-    // 否則留在登入頁面
   }
 
-  Future<bool> _refreshToken(String token) async {
-    final url = Uri.parse('http://211.23.157.201/api/user/refreshToken');
-    final response = await http.put(url, headers: {
-      'Authorization': 'Bearer $token',
-    });
-
-    if (response.statusCode == 200) {
-      final jsonRes = json.decode(response.body);
-      if (jsonRes['status'] == true) {
-        final newToken = jsonRes['data']['token'];
-        final expMs = jsonRes['data']['expirationDate'];
+  Future<bool> _refreshToken(String oldToken) async {
+    final url = Uri.parse('${ApiConfig.baseUrl}/api/user/refreshToken');
+    final resp = await http.put(
+      url,
+      headers: {'Authorization': 'Bearer $oldToken'},
+    );
+    if (resp.statusCode == 200) {
+      final js = json.decode(resp.body) as Map<String, dynamic>;
+      if (js['status'] == true) {
+        final data = js['data'];
+        final newToken = data['token'] as String;
+        final expMs    = data['expirationDate'] as int;
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('token', newToken);
         await prefs.setInt('expire', expMs);
-
-        // 更新 AppState
+        final savedAccount = prefs.getString('account') ?? '';
+        context.read<AppState>().setUserId(savedAccount);
         context.read<AppState>().setToken(
           newToken,
           DateTime.fromMillisecondsSinceEpoch(expMs),
@@ -115,105 +103,87 @@ class _LoginPageState extends State<LoginPage> {
     return false;
   }
 
-  // 呼叫 API 取得公司資料
   Future<void> fetchCompanies() async {
     final url = Uri.parse(
       'http://juahua.com.tw:3005/api/get/login/companies?companyId=1',
     );
-    final response = await http.get(url, headers: {
-      'Authorization':
-      '',
-    });
-    if (response.statusCode == 200) {
-      final jsonResponse = json.decode(response.body);
-      if (jsonResponse['status'] == true) {
-        final List data = jsonResponse['data'];
-        setState(() {
-          _companies = data.map((e) => Company.fromJson(e)).toList();
-          _filteredCompanies = List.from(_companies);
-          if (_filteredCompanies.isNotEmpty) {
-            _selectedCompany = _filteredCompanies.first;
-            _companyCodeController.text = _selectedCompany!.key;
-          }
-        });
+    final resp = await http.get(url);
+    if (resp.statusCode == 200) {
+      final js = json.decode(resp.body) as Map<String, dynamic>;
+      if (js['status'] == true) {
+        final data = (js['data'] as List).cast<Map<String, dynamic>>();
+        _companies = data.map((j) => Company.fromJson(j)).toList();
+        _filtered  = List.from(_companies);
+        if (_filtered.isNotEmpty) {
+          _selectedCompany = _filtered.first;
+          _companyCodeController.text = _selectedCompany!.key;
+        }
+        setState(() {});
       }
-    } else {
-      print("取得公司資料失敗");
     }
   }
 
   void _filterCompanies() {
     final input = _companyCodeController.text;
-    setState(() {
-      if (input.isEmpty) {
-        _filteredCompanies = List.from(_companies);
-      } else {
-        _filteredCompanies = _companies
-            .where((c) =>
-            c.key.toLowerCase().contains(input.toLowerCase()))
-            .toList();
-      }
-      _selectedCompany =
-      _filteredCompanies.isNotEmpty ? _filteredCompanies.first : null;
-    });
+    _filtered = input.isEmpty
+        ? List.from(_companies)
+        : _companies
+        .where((c) => c.key.toLowerCase().contains(input.toLowerCase()))
+        .toList();
+    if (_filtered.isNotEmpty) _selectedCompany = _filtered.first;
+    setState(() {});
   }
 
   Future<void> _login() async {
     final body = json.encode({
-      "companyKey": _companyCodeController.text,
-      "userId": _accountController.text,
-      "password": _passwordController.text,
-      "captcha": "",
-      "companyName": _selectedCompany?.name ?? "",
-      "loginAttempts": 0,
-      "needAuth": true
+      "companyKey":   _companyCodeController.text,
+      "userId":       _accountController.text,
+      "password":     _passwordController.text,
+      "captcha":      "",
+      "companyName":  _selectedCompany?.name ?? "",
+      "loginAttempts":0,
+      "needAuth":     true,
     });
-    final url =
-    Uri.parse('http://211.23.157.201/api/user/authenticate');
-    final response = await http.post(
+    final url = Uri.parse('${ApiConfig.baseUrl}/api/user/authenticate');
+    final resp = await http.post(
       url,
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: {'Content-Type': 'application/json'},
       body: body,
     );
 
-    if (response.statusCode == 200) {
-      final jsonRes = json.decode(response.body);
-      if (jsonRes['status'] == true) {
-        final data = jsonRes['data'];
-        final token = data['token'];
-        final expiration =
-        DateTime.parse(data['expirationDate']); // ISO8601 格式
-
-        // 存到 SharedPreferences
+    if (resp.statusCode == 200) {
+      final js = json.decode(resp.body) as Map<String, dynamic>;
+      if (js['status'] == true) {
+        final d  = js['data'];
+        final t  = d['token'] as String;
+        final exp= DateTime.parse(d['expirationDate'] as String);
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('token', token);
-        await prefs.setInt(
-          'expire',
-          expiration.millisecondsSinceEpoch,
-        );
-
-        // 新增：存公司代號、公司名稱、帳號、密碼
-        await prefs.setString('companyKey', _companyCodeController.text);
+        // 存 token
+        await prefs.setString('token', t);
+        await prefs.setInt('expire', exp.millisecondsSinceEpoch);
+        // 存公司 + 帳號密碼
+        await prefs.setString('companyKey',  _companyCodeController.text);
         await prefs.setString('companyName', _selectedCompany?.name ?? '');
-        await prefs.setString('account', _accountController.text);
-        await prefs.setString('password', _passwordController.text);
+        await prefs.setString('account',     _accountController.text);
+        await prefs.setString('password',    _passwordController.text);
 
         // 更新 AppState
         context.read<AppState>().setUserId(_accountController.text);
-        context.read<AppState>().setToken(token, expiration);
+        context.read<AppState>().setToken(t, exp);
 
+        if (!mounted) return;
         Navigator.pushReplacementNamed(context, '/home');
+        return;
       } else {
-        _showError(jsonRes['message'] ?? '驗證失敗');
+        _showError(js['message'] ?? '登入失敗');
       }
     } else {
-      _showError('伺服器錯誤：${response.statusCode}');
+      _showError('伺服器錯誤：${resp.statusCode}');
     }
   }
 
   void _showError(String msg) {
+    if (!mounted) return;
     showDialog(
       context: context,
       builder: (c) => AlertDialog(
@@ -240,177 +210,126 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // 背景圖片
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: Image.asset(
-              'assets/images/login-bg.png',
-              fit: BoxFit.cover,
-            ),
-          ),
-          SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Image.asset(
-                      'assets/images/login-header.png',
-                      width: 240,
-                      height: 100,
-                      fit: BoxFit.contain,
+      body: Stack(children: [
+        Positioned.fill(
+          child: Image.asset('assets/images/login-bg.png', fit: BoxFit.cover),
+        ),
+        SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Image.asset('assets/images/login-header.png',
+                    width: 240, height: 100),
+                const SizedBox(height: 20),
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.6),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(children: [
+                    const Text(
+                      '覺華工程道路巡查系統',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold),
                     ),
+                    const Divider(color: Colors.white),
+                    const SizedBox(height: 16),
+                    Row(children: [
+                      _buildLabel('公司'),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        flex: 2,
+                        child: _buildTextField(
+                            controller: _companyCodeController,
+                            hint: '代號'),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        flex: 5,
+                        child: DropdownButtonFormField<Company>(
+                          decoration: InputDecoration(
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.2),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
+                            isDense: true,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                          dropdownColor: Colors.black87,
+                          style:
+                          const TextStyle(color: Colors.white, fontSize: 12),
+                          value: _selectedCompany,
+                          items: _filtered
+                              .map((c) => DropdownMenuItem<Company>(
+                            value: c,
+                            child: Text(c.name,
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12)),
+                          ))
+                              .toList(),
+                          onChanged: (c) {
+                            setState(() {
+                              _selectedCompany = c;
+                              _companyCodeController.text = c?.key ?? '';
+                            });
+                          },
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 16),
+                    Row(children: [
+                      _buildLabel('帳號'),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child:
+                          _buildTextField(controller: _accountController, hint: '請輸入帳號')),
+                    ]),
+                    const SizedBox(height: 16),
+                    Row(children: [
+                      _buildLabel('密碼'),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: _buildTextField(
+                              controller: _passwordController,
+                              hint: '請輸入密碼',
+                              obscureText: true)),
+                    ]),
                     const SizedBox(height: 20),
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 16),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.6),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Padding(
-                            padding: EdgeInsets.only(bottom: 8.0),
-                            child: Text(
-                              '覺華工程道路巡查系統',
-                              style: TextStyle(
-                                fontSize: 18,
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          const Divider(color: Colors.white, thickness: 1),
-                          const SizedBox(height: 16),
-                          // 公司代號 + 下拉
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              _buildLabel('公司'),
-                              const SizedBox(width: 8),
-                              Flexible(
-                                flex: 2,
-                                child: _buildTextField(
-                                  controller: _companyCodeController,
-                                  hint: '代號',
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Flexible(
-                                flex: 5,
-                                child: DropdownButtonFormField<Company>(
-                                  decoration: InputDecoration(
-                                    filled: true,
-                                    fillColor:
-                                    Colors.white.withOpacity(0.2),
-                                    contentPadding:
-                                    const EdgeInsets.symmetric(
-                                        horizontal: 12, vertical: 10),
-                                    isDense: true,
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: BorderSide.none,
-                                    ),
-                                  ),
-                                  isExpanded: true,
-                                  style: const TextStyle(
-                                      color: Colors.white, fontSize: 12),
-                                  dropdownColor: Colors.black87,
-                                  value: _selectedCompany,
-                                  items: _filteredCompanies
-                                      .map((company) =>
-                                      DropdownMenuItem<Company>(
-                                        value: company,
-                                        child: Text(
-                                          company.name,
-                                          style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12),
-                                        ),
-                                      ))
-                                      .toList(),
-                                  onChanged: (c) {
-                                    setState(() {
-                                      _selectedCompany = c;
-                                      _companyCodeController.text =
-                                          c?.key ?? '';
-                                    });
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          // 帳號
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              _buildLabel('帳號'),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _buildTextField(
-                                  controller: _accountController,
-                                  hint: '請輸入帳號',
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          // 密碼
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              _buildLabel('密碼'),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _buildTextField(
-                                  controller: _passwordController,
-                                  hint: '請輸入密碼',
-                                  obscureText: true,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 48,
-                            child: ElevatedButton(
-                              onPressed: _login,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF003D79),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(24),
-                                ),
-                              ),
-                              child: const Text(
-                                '登入',
-                                style: TextStyle(color: Colors.white),
-                              ),
-                            ),
-                          ),
-                        ],
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: _login,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF003D79),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24)),
+                        ),
+                        child: const Text('登入',
+                            style: TextStyle(color: Colors.white)),
                       ),
                     ),
-                    const SizedBox(height: 30),
-                  ],
+                  ]),
                 ),
-              ),
+                const SizedBox(height: 30),
+              ]),
             ),
           ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 
-  Widget _buildLabel(String label) => Text(
-    label,
-    style: const TextStyle(color: Colors.white, fontSize: 16),
-  );
-
+  Widget _buildLabel(String label) => Text(label,
+      style: const TextStyle(color: Colors.white, fontSize: 16));
   Widget _buildTextField({
     required TextEditingController controller,
     required String hint,
@@ -429,9 +348,8 @@ class _LoginPageState extends State<LoginPage> {
           const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           isDense: true,
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none),
         ),
       );
 }

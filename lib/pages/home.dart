@@ -9,6 +9,7 @@ import '../components/app_header.dart';
 import '../components/my_end_drawer.dart';
 import './dispatch_list.dart';   // DispatchItem 模型定義
 import './inspection_list.dart'; // InspectionItem & 列表頁
+import '../components/config.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -19,6 +20,9 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   List<InspectionItem> _todayInspections = [];
   List<DispatchItem> _todayDispatches = [];
+
+  // 新增：用來儲存被勾選的 DispatchItem ID
+  final Set<int> _selectedDispatchIds = {};
 
   @override
   void initState() {
@@ -31,7 +35,7 @@ class _HomePageState extends State<HomePage> {
     final token = context.read<AppState>().token;
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     final url =
-        'http://211.23.157.201/api/get/workorder/maintenance'
+        '${ApiConfig.baseUrl}/api/get/workorder/maintenance'
         '?startDate=$today&endDate=$today';
     final resp = await http.get(
       Uri.parse(url),
@@ -54,7 +58,7 @@ class _HomePageState extends State<HomePage> {
     final token = context.read<AppState>().token;
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     final url =
-        'http://211.23.157.201/api/get/workorder/repairDispatch'
+        '${ApiConfig.baseUrl}/api/get/workorder/repairDispatch'
         '?startDate=$today&endDate=$today';
     final resp = await http.get(
       Uri.parse(url),
@@ -67,6 +71,8 @@ class _HomePageState extends State<HomePage> {
           _todayDispatches = (body['data'] as List)
               .map((j) => DispatchItem.fromJson(j))
               .toList();
+          // 如果一開始要預設清空選取，可在這裡確保 _selectedDispatchIds 清空
+          _selectedDispatchIds.clear();
         });
       }
     }
@@ -131,15 +137,15 @@ class _HomePageState extends State<HomePage> {
               alignment: Alignment.center,
               child: Text(
                 '今日派工回報清單',
-                style: TextStyle(
-                  color: const Color(0xFF30475E),
+                style: const TextStyle(
+                  color: Color(0xFF30475E),
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ),
             const SizedBox(height: 8),
-            _buildDispatchTable(),
+            _buildDispatchTable(), // 在這裡呼叫更新後的 Dispatch Table
 
             const SizedBox(height: 24),
 
@@ -180,6 +186,7 @@ class _HomePageState extends State<HomePage> {
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
+                columnSpacing: 36,
                 columns: const [
                   DataColumn(label: Text('項目')),
                   DataColumn(label: Text('案件編號')),
@@ -194,7 +201,8 @@ class _HomePageState extends State<HomePage> {
                   return DataRow(cells: [
                     DataCell(Text(
                       item.formType,
-                      style: TextStyle(color: color, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                          color: color, fontWeight: FontWeight.bold),
                     )),
                     DataCell(Text(item.caseNum)),
                     DataCell(Text(item.damageType)),
@@ -241,39 +249,77 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /// 更新：Dispatch Table，新增「勾選」欄位以及「回報」按鈕
   Widget _buildDispatchTable() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 今日共 X 筆
+        // 今日共 X 筆 + 「回報」按鈕
         Padding(
-           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-           child: Row(
-             children: [
-               Text(
-                 '今日共 ${_todayDispatches.length} 筆',
-                 style: const TextStyle(
-                   color: Colors.red,
-                   fontWeight: FontWeight.bold,
-                 ),
-               ),
-               const Spacer(),
-               TextButton(
-                 onPressed: () => Navigator.pushNamed(context, '/dispatchList'),
-                  child: const Text('更多≫'),
-               ),
-             ],
-           ),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            children: [
+              Text(
+                '今日共 ${_todayDispatches.length} 筆',
+                style: const TextStyle(
+                  color: Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              // 「更多≫」導向 Dispatch List
+              TextButton(
+                onPressed: () => Navigator.pushNamed(context, '/dispatchList'),
+                child: const Text('更多≫'),
+              ),
+            ],
+          ),
         ),
+        // 在「今日共 X 筆」下方，新增「回報」按鈕
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 2),
+          child: ElevatedButton(
+            onPressed: () {
+              // 點擊時跳出 AlertDialog，顯示被勾選的 ID 列表
+              final selectedIdsString =
+              _selectedDispatchIds.isEmpty ? '（未選擇任何項目）' : _selectedDispatchIds.join(', ');
+              showDialog(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text('回報確認'),
+                  content: Text('已選擇的 Dispatch ID：\n$selectedIdsString'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('關閉'),
+                    ),
+                  ],
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2F5597),
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            ),
+            child: const Text(
+              '回報',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ),
+        // DataTable（含「勾選」欄位）
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: DataTable(
-            columns: const [
-              DataColumn(label: Text('狀態')),
-              DataColumn(label: Text('派工單類型')),
-              DataColumn(label: Text('案件編號')),
-              DataColumn(label: Text('行政區')),
-              DataColumn(label: Text('里別')),
+            columnSpacing: 36,
+            columns: [
+              // 新增「勾選」欄位
+              const DataColumn(label: Text('勾選')),
+              const DataColumn(label: Text('狀態')),
+              const DataColumn(label: Text('派工單類型')),
+              const DataColumn(label: Text('案件編號')),
+              const DataColumn(label: Text('行政區')),
+              const DataColumn(label: Text('里別')),
             ],
             rows: _todayDispatches.map((item) {
               Color statusColor;
@@ -287,8 +333,25 @@ class _HomePageState extends State<HomePage> {
                 default:
                   statusColor = Colors.red;
               }
+              final checked = _selectedDispatchIds.contains(item.id);
               return DataRow(cells: [
-                DataCell(Text(item.status, style: TextStyle(color: statusColor))),
+                // 第一欄：Checkbox
+                DataCell(
+                  Checkbox(
+                    value: checked,
+                    onChanged: (bool? value) {
+                      setState(() {
+                        if (value == true) {
+                          _selectedDispatchIds.add(item.id);
+                        } else {
+                          _selectedDispatchIds.remove(item.id);
+                        }
+                      });
+                    },
+                  ),
+                ),
+                DataCell(Text(item.status,
+                    style: TextStyle(color: statusColor))),
                 DataCell(Text(item.type)),
                 DataCell(Text(item.caseNum)),
                 DataCell(Text(item.district)),

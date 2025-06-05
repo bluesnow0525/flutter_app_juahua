@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../app_state.dart';
 import '../components/app_header.dart';
 import '../components/my_end_drawer.dart';
+import '../components/config.dart';
 
 /// 標案模型
 class Tender {
@@ -79,7 +80,7 @@ class InspectionItem {
   });
 
   factory InspectionItem.fromJson(Map<String, dynamic> j) {
-    const urlBase = 'http://211.23.157.201/';
+    const urlBase = '${ApiConfig.baseUrl}/';
     String photoUrl = '';
     String? photoBefore;
     String? photoDuring;
@@ -205,7 +206,7 @@ class _InspectionListPageState extends State<InspectionListPage> {
 
   Future<void> _fetchTenders() async {
     final token = context.read<AppState>().token;
-    final uri = Uri.parse('http://211.23.157.201/api/get/tender');
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/get/tender');
     final resp = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
     if (resp.statusCode == 200) {
       final body = jsonDecode(resp.body) as Map<String, dynamic>;
@@ -223,7 +224,7 @@ class _InspectionListPageState extends State<InspectionListPage> {
   Future<void> _fetchVillages() async {
     final token = context.read<AppState>().token;
     final resp = await http.get(
-      Uri.parse('http://211.23.157.201/api/get/geo/area'),
+      Uri.parse('${ApiConfig.baseUrl}/api/get/geo/area'),
       headers: {'Authorization': 'Bearer $token'},
     );
     if (resp.statusCode == 200) {
@@ -245,6 +246,7 @@ class _InspectionListPageState extends State<InspectionListPage> {
     final initial = isStart ? _startDate : _endDate;
     final dt = await showDatePicker(
       context: context,
+      locale: const Locale('zh', 'TW'),
       initialDate: initial,
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
@@ -292,7 +294,7 @@ class _InspectionListPageState extends State<InspectionListPage> {
       qs.add('caseNumber=${Uri.encodeComponent(_caseNumController.text)}');
     }
 
-    final url = 'http://211.23.157.201/api/get/workorder/maintenance?${qs.join('&')}';
+    final url = '${ApiConfig.baseUrl}/api/get/workorder/maintenance?${qs.join('&')}';
     print('🔍 Request URL: $url');
 
     try {
