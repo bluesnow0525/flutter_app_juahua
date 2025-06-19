@@ -150,39 +150,6 @@ class _PersonalInfoPageState extends State<PersonalInfoPage> {
                       ),
                     ),
 
-                    // 使用者密碼
-                    _buildField(
-                      '使用者密碼',
-                      TextField(
-                        controller: _passwordController,
-                        readOnly: true,
-                        obscureText: _obscure,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: const Color(0xFFDAE3F3),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 14),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscure
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
-                              color: Colors.grey,
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _obscure = !_obscure;
-                              });
-                            },
-                          ),
-                        ),
-                      ),
-                    ),
-
                     const SizedBox(height: 24),
 
                     // 登出按鈕

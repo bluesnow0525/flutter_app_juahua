@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyCkf2BF531Yg_sa5s6OvVDgwb8j0hCaRv8</string>
+	<key>GCM_SENDER_ID</key>
+	<string>541723490411</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>jh20161207.YuShengApp</string>
+	<key>PROJECT_ID</key>
+	<string>yusheng-app</string>
+	<key>STORAGE_BUCKET</key>
+	<string>yusheng-app.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:541723490411:ios:c05d8ac8312f883e05d92e</string>
+</dict>
+</plist>

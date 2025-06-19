@@ -303,10 +303,18 @@ class _DispatchBaseFormPageState extends State<DispatchBaseFormPage> {
     _onProjectChanged(item.prjId);
 
     _villageController.text = item.village;
-    _dispatchDateController.text = DateFormat('yyyy-MM-dd').format(item.dispatchDate);
-    _deadlineController.text = DateFormat('yyyy-MM-dd').format(item.dueDate);
-    _workDateController.text = DateFormat('yyyy-MM-dd').format(item.workStartDate);
-    _completeDateController.text = DateFormat('yyyy-MM-dd').format(item.workEndDate);
+    _dispatchDateController.text = item.dispatchDate != null
+        ? DateFormat('yyyy-MM-dd').format(item.dispatchDate!)
+        : '';
+    _deadlineController.text = item.dueDate != null
+        ? DateFormat('yyyy-MM-dd').format(item.dueDate!)
+        : '';
+    _workDateController.text = item.workStartDate != null
+        ? DateFormat('yyyy-MM-dd').format(item.workStartDate!)
+        : '';
+    _completeDateController.text = item.workEndDate != null
+        ? DateFormat('yyyy-MM-dd').format(item.workEndDate!)
+        : '';
     _roadNameController.text = item.address;
     _startRoadNameController.text = item.startAddr;
     _endRoadNameController.text = item.endAddr;
@@ -1353,12 +1361,30 @@ class _DispatchBaseFormPageState extends State<DispatchBaseFormPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            Text(
-              '派工單 - 路基改善',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF30475E),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Color(0xFF30475E)),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                  const Center(
+                    child: Text(
+                      '派工單 - 路基改善',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF30475E),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 8),

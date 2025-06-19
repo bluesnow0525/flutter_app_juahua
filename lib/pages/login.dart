@@ -11,11 +11,8 @@ class Company {
   final String key;
   final String name;
   Company({required this.id, required this.key, required this.name});
-  factory Company.fromJson(Map<String, dynamic> j) => Company(
-    id: j['id'],
-    key: j['key'],
-    name: j['name'],
-  );
+  factory Company.fromJson(Map<String, dynamic> j) =>
+      Company(id: j['id'], key: j['key'], name: j['name']);
 }
 
 class LoginPage extends StatefulWidget {
@@ -45,14 +42,14 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _loadSavedCredentials() async {
     final prefs = await SharedPreferences.getInstance();
-    final key   = prefs.getString('companyKey');
-    final acc   = prefs.getString('account');
-    final pwd   = prefs.getString('password');
+    final key = prefs.getString('companyKey');
+    final acc = prefs.getString('account');
+    final pwd = prefs.getString('password');
 
     if (key != null && _companies.isNotEmpty) {
       _companyCodeController.text = key;
       _selectedCompany = _companies.firstWhere(
-            (c) => c.key == key,
+        (c) => c.key == key,
         orElse: () => _companies.first,
       );
       setState(() {}); // 更新 dropdown
@@ -64,7 +61,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _checkSavedToken() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
-    final expMs  = prefs.getInt('expire');
+    final expMs = prefs.getInt('expire');
     if (token != null && expMs != null) {
       final exp = DateTime.fromMillisecondsSinceEpoch(expMs);
       if (DateTime.now().isBefore(exp)) {
@@ -87,7 +84,7 @@ class _LoginPageState extends State<LoginPage> {
       if (js['status'] == true) {
         final data = js['data'];
         final newToken = data['token'] as String;
-        final expMs    = data['expirationDate'] as int;
+        final expMs = data['expirationDate'] as int;
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('token', newToken);
         await prefs.setInt('expire', expMs);
@@ -113,7 +110,7 @@ class _LoginPageState extends State<LoginPage> {
       if (js['status'] == true) {
         final data = (js['data'] as List).cast<Map<String, dynamic>>();
         _companies = data.map((j) => Company.fromJson(j)).toList();
-        _filtered  = List.from(_companies);
+        _filtered = List.from(_companies);
         if (_filtered.isNotEmpty) {
           _selectedCompany = _filtered.first;
           _companyCodeController.text = _selectedCompany!.key;
@@ -125,26 +122,31 @@ class _LoginPageState extends State<LoginPage> {
 
   void _filterCompanies() {
     final input = _companyCodeController.text;
-    _filtered = input.isEmpty
-        ? List.from(_companies)
-        : _companies
-        .where((c) => c.key.toLowerCase().contains(input.toLowerCase()))
-        .toList();
+    _filtered =
+        input.isEmpty
+            ? List.from(_companies)
+            : _companies
+                .where((c) => c.key.toLowerCase().contains(input.toLowerCase()))
+                .toList();
     if (_filtered.isNotEmpty) _selectedCompany = _filtered.first;
     setState(() {});
   }
 
   Future<void> _login() async {
     final body = json.encode({
-      "companyKey":   _companyCodeController.text,
-      "userId":       _accountController.text,
-      "password":     _passwordController.text,
-      "captcha":      "",
-      "companyName":  _selectedCompany?.name ?? "",
-      "loginAttempts":0,
-      "needAuth":     true,
+      "companyKey": _companyCodeController.text,
+      "userId": _accountController.text,
+      "password": _passwordController.text,
+      "captcha": "",
+      "companyName": _selectedCompany?.name ?? "",
+      "loginAttempts": 0,
+      "needAuth": true,
+      'device': context.read<AppState>().device,
+      "fcmToken": context.read<AppState>().fcmToken ?? "",
     });
+
     final url = Uri.parse('${ApiConfig.baseUrl}/api/user/authenticate');
+
     final resp = await http.post(
       url,
       headers: {'Content-Type': 'application/json'},
@@ -154,18 +156,18 @@ class _LoginPageState extends State<LoginPage> {
     if (resp.statusCode == 200) {
       final js = json.decode(resp.body) as Map<String, dynamic>;
       if (js['status'] == true) {
-        final d  = js['data'];
-        final t  = d['token'] as String;
-        final exp= DateTime.parse(d['expirationDate'] as String);
+        final d = js['data'];
+        final t = d['token'] as String;
+        final exp = DateTime.parse(d['expirationDate'] as String);
         final prefs = await SharedPreferences.getInstance();
         // 存 token
         await prefs.setString('token', t);
         await prefs.setInt('expire', exp.millisecondsSinceEpoch);
         // 存公司 + 帳號密碼
-        await prefs.setString('companyKey',  _companyCodeController.text);
+        await prefs.setString('companyKey', _companyCodeController.text);
         await prefs.setString('companyName', _selectedCompany?.name ?? '');
-        await prefs.setString('account',     _accountController.text);
-        await prefs.setString('password',    _passwordController.text);
+        await prefs.setString('account', _accountController.text);
+        await prefs.setString('password', _passwordController.text);
 
         // 更新 AppState
         context.read<AppState>().setUserId(_accountController.text);
@@ -186,16 +188,17 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return;
     showDialog(
       context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('登入失敗'),
-        content: Text(msg),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(c).pop(),
-            child: const Text('確定'),
+      builder:
+          (c) => AlertDialog(
+            title: const Text('登入失敗'),
+            content: Text(msg),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(c).pop(),
+                child: const Text('確定'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -210,146 +213,182 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(children: [
-        Positioned.fill(
-          child: Image.asset('assets/images/login-bg.png', fit: BoxFit.cover),
-        ),
-        SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Image.asset('assets/images/login-header.png',
-                    width: 240, height: 100),
-                const SizedBox(height: 20),
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.6),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(children: [
-                    const Text(
-                      '覺華工程道路巡查系統',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: Image.asset('assets/images/login-bg.png', fit: BoxFit.cover),
+          ),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Image.asset(
+                      'assets/images/login-header.png',
+                      width: 240,
+                      height: 100,
                     ),
-                    const Divider(color: Colors.white),
-                    const SizedBox(height: 16),
-                    Row(children: [
-                      _buildLabel('公司'),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        flex: 2,
-                        child: _buildTextField(
-                            controller: _companyCodeController,
-                            hint: '代號'),
+                    const SizedBox(height: 20),
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        flex: 5,
-                        child: DropdownButtonFormField<Company>(
-                          decoration: InputDecoration(
-                            filled: true,
-                            fillColor: Colors.white.withOpacity(0.2),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 10),
-                            isDense: true,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
+                      child: Column(
+                        children: [
+                          const Text(
+                            '覺華工程道路巡查系統',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          dropdownColor: Colors.black87,
-                          style:
-                          const TextStyle(color: Colors.white, fontSize: 12),
-                          value: _selectedCompany,
-                          items: _filtered
-                              .map((c) => DropdownMenuItem<Company>(
-                            value: c,
-                            child: Text(c.name,
-                                style: const TextStyle(
+                          const Divider(color: Colors.white),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              _buildLabel('公司'),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                flex: 2,
+                                child: _buildTextField(
+                                  controller: _companyCodeController,
+                                  hint: '代號',
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                flex: 5,
+                                child: DropdownButtonFormField<Company>(
+                                  decoration: InputDecoration(
+                                    filled: true,
+                                    fillColor: Colors.white.withOpacity(0.2),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    isDense: true,
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                  ),
+                                  dropdownColor: Colors.black87,
+                                  style: const TextStyle(
                                     color: Colors.white,
-                                    fontSize: 12)),
-                          ))
-                              .toList(),
-                          onChanged: (c) {
-                            setState(() {
-                              _selectedCompany = c;
-                              _companyCodeController.text = c?.key ?? '';
-                            });
-                          },
-                        ),
-                      ),
-                    ]),
-                    const SizedBox(height: 16),
-                    Row(children: [
-                      _buildLabel('帳號'),
-                      const SizedBox(width: 8),
-                      Expanded(
-                          child:
-                          _buildTextField(controller: _accountController, hint: '請輸入帳號')),
-                    ]),
-                    const SizedBox(height: 16),
-                    Row(children: [
-                      _buildLabel('密碼'),
-                      const SizedBox(width: 8),
-                      Expanded(
-                          child: _buildTextField(
-                              controller: _passwordController,
-                              hint: '請輸入密碼',
-                              obscureText: true)),
-                    ]),
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: _login,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF003D79),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(24)),
-                        ),
-                        child: const Text('登入',
-                            style: TextStyle(color: Colors.white)),
+                                    fontSize: 12,
+                                  ),
+                                  value: _selectedCompany,
+                                  items:
+                                      _filtered
+                                          .map(
+                                            (c) => DropdownMenuItem<Company>(
+                                              value: c,
+                                              child: Text(
+                                                c.name,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                                  onChanged: (c) {
+                                    setState(() {
+                                      _selectedCompany = c;
+                                      _companyCodeController.text =
+                                          c?.key ?? '';
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              _buildLabel('帳號'),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _buildTextField(
+                                  controller: _accountController,
+                                  hint: '請輸入帳號',
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              _buildLabel('密碼'),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _buildTextField(
+                                  controller: _passwordController,
+                                  hint: '請輸入密碼',
+                                  obscureText: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: ElevatedButton(
+                              onPressed: _login,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF003D79),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                              ),
+                              child: const Text(
+                                '登入',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ]),
+                    const SizedBox(height: 30),
+                  ],
                 ),
-                const SizedBox(height: 30),
-              ]),
+              ),
             ),
           ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 
-  Widget _buildLabel(String label) => Text(label,
-      style: const TextStyle(color: Colors.white, fontSize: 16));
+  Widget _buildLabel(String label) =>
+      Text(label, style: const TextStyle(color: Colors.white, fontSize: 16));
   Widget _buildTextField({
     required TextEditingController controller,
     required String hint,
     bool obscureText = false,
-  }) =>
-      TextField(
-        controller: controller,
-        obscureText: obscureText,
-        style: const TextStyle(color: Colors.white),
-        decoration: InputDecoration(
-          hintText: hint,
-          hintStyle: const TextStyle(color: Colors.white54),
-          filled: true,
-          fillColor: Colors.white.withOpacity(0.2),
-          contentPadding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          isDense: true,
-          border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none),
-        ),
-      );
+  }) => TextField(
+    controller: controller,
+    obscureText: obscureText,
+    style: const TextStyle(color: Colors.white),
+    decoration: InputDecoration(
+      hintText: hint,
+      hintStyle: const TextStyle(color: Colors.white54),
+      filled: true,
+      fillColor: Colors.white.withOpacity(0.2),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      isDense: true,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+    ),
+  );
 }

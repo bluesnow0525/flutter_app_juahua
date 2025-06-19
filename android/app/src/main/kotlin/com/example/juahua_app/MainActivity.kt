@@ -1,4 +1,4 @@
-package com.example.juahua_app
+package com.juahua.yusheng
 
 import io.flutter.embedding.android.FlutterFragmentActivity;
 class MainActivity: FlutterFragmentActivity() {

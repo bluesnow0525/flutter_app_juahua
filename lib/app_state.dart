@@ -9,11 +9,24 @@ class AppState extends ChangeNotifier {
   String _userId = '';
   String _token = '';
   DateTime? _expirationDate;
+  String? _fcmToken;
 
   String get currentPage => _currentPage;
   String get userId => _userId;
   String get token => _token;
   DateTime? get expirationDate => _expirationDate;
+  String? get fcmToken => _fcmToken;
+
+  String get device {
+    if (Platform.isAndroid) return 'android';
+    if (Platform.isIOS) return 'ios';
+    return '';
+  }
+
+  void setFcmToken(String? token) {
+    _fcmToken = token;
+    notifyListeners();
+  }
 
   void setCurrentPage(String page) {
     _currentPage = page;
@@ -38,6 +51,7 @@ class AppState extends ChangeNotifier {
     _inspectionForm[key] = value;
     notifyListeners();
   }
+
   void resetInspectionForm() {
     _inspectionForm.clear();
     notifyListeners();
@@ -53,9 +67,9 @@ class AppState extends ChangeNotifier {
     _uploadList
       ..clear()
       ..addAll(
-        stored
-            .cast<Map>()
-            .map((j) => UploadRecord.fromJson(Map<String, dynamic>.from(j))),
+        stored.cast<Map>().map(
+          (j) => UploadRecord.fromJson(Map<String, dynamic>.from(j)),
+        ),
       );
     notifyListeners();
   }
@@ -86,12 +100,13 @@ class AppState extends ChangeNotifier {
   /// 刪除指定記錄，也只刪掉沒有其他記錄在用的檔案
   void removeUploadRecords(Set<String> ids) {
     // 1) 先算出「未刪除的其他記錄」正在使用的所有路徑
-    final inUse = _uploadList
-    // 排除要刪的那些
-        .where((r) => !ids.contains(r.id))
-    // 展開所有還在用的 filePathMap
-        .expand((r) => r.filePathMap?.values ?? [])
-        .toSet();
+    final inUse =
+        _uploadList
+            // 排除要刪的那些
+            .where((r) => !ids.contains(r.id))
+            // 展開所有還在用的 filePathMap
+            .expand((r) => r.filePathMap?.values ?? [])
+            .toSet();
 
     // 2) 刪除那些要刪記錄，而且又「沒在 inUse」的檔案
     for (var rec in _uploadList.where((r) => ids.contains(r.id))) {

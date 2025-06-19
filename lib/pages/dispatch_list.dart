@@ -35,15 +35,15 @@ class DispatchItem {
   final String type;
   final String caseNum;
   final String prjId;
-  final DateTime dispatchDate;
-  final DateTime dueDate;
+  final DateTime? dispatchDate;
+  final DateTime? dueDate;
   final String district;
   final String village;
   final String address;
   final String startAddr;
   final String endAddr;
-  final DateTime workStartDate;
-  final DateTime workEndDate;
+  final DateTime? workStartDate;
+  final DateTime? workEndDate;
   final String material;
   final double materialSize;
   final double workLength;
@@ -117,15 +117,15 @@ class DispatchItem {
       type: j['type'] as String? ?? '',
       caseNum: j['case_num'] as String? ?? '',
       prjId: j['prj_id'] as String? ?? '',
-      dispatchDate: DateTime.parse(j['dispatch_date'] as String? ?? ''),
-      dueDate: DateTime.parse(j['due_date'] as String? ?? ''),
+      dispatchDate: parseNullableDate(j['dispatch_date'] as String?),
+      dueDate: parseNullableDate(j['due_date'] as String?),
       district: j['district'] as String? ?? '',
       village: j['cavlge'] as String? ?? '',
       address: j['address'] as String? ?? '',
       startAddr: j['start_addr'] as String? ?? '',
       endAddr: j['end_addr'] as String? ?? '',
-      workStartDate: DateTime.parse(j['work_start_date'] as String? ?? ''),
-      workEndDate: DateTime.parse(j['work_end_date'] as String? ?? ''),
+      workStartDate: parseNullableDate(j['work_start_date'] as String?),
+      workEndDate: parseNullableDate(j['work_end_date'] as String?),
       material: j['material'] as String? ?? '',
       // 以下數字欄位若為 null，一律回傳 0.0
       materialSize:
@@ -383,130 +383,139 @@ class _DispatchListPageState extends State<DispatchListPage> {
       body: Stack(
           children: [
       // 底層：按鈕列 + 資料表
-      Column(
-      children: [
-      // 按鈕列
-      Padding(
-      padding: const EdgeInsets.all(12),
-      child: Row(
-        children: [
-          Column(
-            children: [
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0070C0),
-                  foregroundColor: Colors.white,
-                ),
-                onPressed: () =>
-                    Navigator.pushNamed(context, '/dispatchCutForm'),
-                child: const Text('刨除加封'),
-              ),
-              const SizedBox(height: 2),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0070C0),
-                  foregroundColor: Colors.white,
-                ),
-                onPressed: () =>
-                    Navigator.pushNamed(context, '/dispatchBaseForm'),
-                child: const Text('路基改善'),
-              ),
-            ],
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '派工單列表',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF30475E),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF30475E),
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => setState(() => _showFilters = !_showFilters),
-            child: Row(
+            Column(
               children: [
-                const Text('查詢欄'),
-                Icon(_showFilters
-                    ? Icons.arrow_drop_up
-                    : Icons.arrow_drop_down),
+                // 上方標題列（保留）
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                      Expanded(
+                        child: Text(
+                          '派工單列表',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF30475E),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF30475E),
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => setState(() => _showFilters = !_showFilters),
+                        child: Row(
+                          children: [
+                            const Text('查詢欄'),
+                            Icon(_showFilters
+                                ? Icons.arrow_drop_up
+                                : Icons.arrow_drop_down),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // 固定高度的資料表
+                SizedBox(
+                  height: 550,
+                  child: _results.isEmpty
+                      ? Center(child: Text(_loading ? '查詢中…' : '尚無資料，請按「查詢」'))
+                      : SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.all(12),
+                    child: DataTable(
+                      columns: const [
+                        DataColumn(label: Text('狀態')),
+                        DataColumn(label: Text('表單類型')),
+                        DataColumn(label: Text('案件編號')),
+                        DataColumn(label: Text('行政區')),
+                        DataColumn(label: Text('里別')),
+                        DataColumn(label: Text('派工日期')),
+                        DataColumn(label: Text('施工日期')),
+                        DataColumn(label: Text('指派人員')),
+                        DataColumn(label: Text('施工路段')),
+                        DataColumn(label: Text('照片')),
+                      ],
+                      rows: _results.map((item) {
+                        final formRoute = item.type == '刨除加封'
+                            ? '/dispatchCutForm'
+                            : '/dispatchBaseForm';
+                        return DataRow(
+                          onSelectChanged: (selected) {
+                            if (selected == true) {
+                              Navigator.pushNamed(context, formRoute, arguments: item);
+                            }
+                          },
+                          cells: [
+                            DataCell(Text(item.status)),
+                            DataCell(Text(item.type)),
+                            DataCell(Text(item.caseNum)),
+                            DataCell(Text(item.district)),
+                            DataCell(Text(item.village)),
+                            DataCell(Text(item.dispatchDate != null
+                                ? DateFormat('yyyy-MM-dd').format(item.dispatchDate!)
+                                : '')),
+                            DataCell(Text(
+                                '${item.workStartDate != null ? DateFormat('yyyy-MM-dd').format(item.workStartDate!) : ''} ~ ${item.workEndDate != null ? DateFormat('yyyy-MM-dd').format(item.workEndDate!) : ''}')),
+                            DataCell(Text(item.prjId)),
+                            DataCell(Text(item.address)),
+                            DataCell(item.firstImageUrl.isNotEmpty
+                                ? IconButton(
+                              icon: const Icon(Icons.archive_outlined, size: 24),
+                              onPressed: () {
+                                Navigator.pushNamed(context, formRoute, arguments: item);
+                              },
+                            )
+                                : const SizedBox.shrink()),
+                          ],
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // 下方按鈕列：一左一右
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0070C0),
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => Navigator.pushNamed(context, '/dispatchCutForm'),
+                        child: const Text('刨除加封'),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0070C0),
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => Navigator.pushNamed(context, '/dispatchBaseForm'),
+                        child: const Text('路基改善'),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 12),
               ],
             ),
-          ),
-        ],
-      ),
-    ),
-
-    // 資料列表
-    Expanded(
-    child: _results.isEmpty
-    ? Center(child: Text(_loading ? '查詢中…' : '尚無資料，請按「查詢」'))
-        : SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    padding: const EdgeInsets.all(12),
-    child: DataTable(
-    columns: const [
-    DataColumn(label: Text('狀態')),
-    DataColumn(label: Text('表單類型')),
-    DataColumn(label: Text('案件編號')),
-    DataColumn(label: Text('行政區')),
-    DataColumn(label: Text('里別')),
-    DataColumn(label: Text('派工日期')),
-    DataColumn(label: Text('施工日期')),
-    DataColumn(label: Text('指派人員')),
-    DataColumn(label: Text('施工路段')),
-    DataColumn(label: Text('照片')),
-    ],
-    rows: _results.map((item) {
-    final formRoute = item.type == '刨除加封'
-    ? '/dispatchCutForm'
-        : '/dispatchBaseForm';
-    return DataRow(
-    onSelectChanged: (selected) {
-    if (selected == true) {
-    Navigator.pushNamed(context, formRoute, arguments: item);
-    }
-    },
-    cells: [
-    DataCell(Text(item.status)),
-    DataCell(Text(item.type)),
-    DataCell(Text(item.caseNum)),
-    DataCell(Text(item.district)),
-    DataCell(Text(item.village)),
-    DataCell(Text(DateFormat('yyyy-MM-dd').format(item.dispatchDate))),
-    DataCell(Text(
-    '${DateFormat('yyyy-MM-dd').format(item.workStartDate)} ~ '
-    '${DateFormat('yyyy-MM-dd').format(item.workEndDate)}')),
-    DataCell(Text(item.prjId)),
-    DataCell(Text(item.address)),
-    DataCell(
-      item.firstImageUrl.isNotEmpty
-          ? IconButton(
-        icon: const Icon(Icons.archive_outlined, size: 24),
-        onPressed: () {
-          Navigator.pushNamed(context, formRoute, arguments: item);
-        },
-      )
-          : const SizedBox.shrink(),
-    ),
-    ],
-    );
-    }).toList(),
-    ),
-    ),
-    ),
-    ],
-    ),
-
-    // 半透遮罩，點擊收起查詢
+            // 半透遮罩，點擊收起查詢
     if (_showFilters)
     Positioned.fill(
     child: GestureDetector(
@@ -515,12 +524,12 @@ class _DispatchListPageState extends State<DispatchListPage> {
     ),
     ),
 
-    // 浮層查詢面板
     if (_showFilters)
     Positioned(
     top: kToolbarHeight + 60,
     left: 16,
     right: 16,
+    bottom: 16,
     child: Material(
     elevation: 8,
     borderRadius: BorderRadius.circular(8),
@@ -530,259 +539,185 @@ class _DispatchListPageState extends State<DispatchListPage> {
     color: Colors.white,
     borderRadius: BorderRadius.circular(8),
     ),
-    child: ConstrainedBox(
-    constraints: const BoxConstraints(maxHeight: 600),
+    child: Scrollbar(
+    thumbVisibility: true,
     child: SingleChildScrollView(
     child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-    // 第1排：派工起訖日期
+    // 日期欄位左右排列
     Row(
     children: [
-    _buildDateField(
-    '派工開始日期', _dispatchStart, () => _pickDate(isStart: true)),
+    Expanded(
+    child: _buildDateField('派工開始日期', _dispatchStart, () => _pickDate(isStart: true)),
+    ),
     const SizedBox(width: 12),
-    _buildDateField(
-    '派工結束日期', _dispatchEnd, () => _pickDate(isStart: false)),
+    Expanded(
+    child: _buildDateField('派工結束日期', _dispatchEnd, () => _pickDate(isStart: false)),
+    ),
     ],
     ),
-    const SizedBox(height: 8),
+    const SizedBox(height: 12),
 
-    // 第2排：標案 & 表單類型
-    Row(
-    children: [
-    SizedBox(
-    width: 200,
-    child: ExpansionTile(
-    tilePadding:
-    const EdgeInsets.symmetric(horizontal: 2),
-    childrenPadding:
-    const EdgeInsets.symmetric(horizontal: 2),
-    title: Text(
-    '標案：${_selectedProjectIds.isEmpty ? '' : _selectedProjectIds.map((i) => _tenders.firstWhere((t) => t.id == i).name).join('、')}',
-    style: const TextStyle(fontSize: 14),
+    // 標案
+    ExpansionTile(
+    title: Align(
+    alignment: Alignment.centerLeft,
+    child: Text('標案：${_selectedProjectIds.map((i) => _tenders.firstWhere((t) => t.id == i).name).join('、')}',
+    textAlign: TextAlign.left),
     ),
-    initiallyExpanded: _activeFilter == 2,
-    onExpansionChanged: (open) =>
-    setState(() => _activeFilter = open ? 2 : 0),
     children: [
     ConstrainedBox(
-    constraints:
-    const BoxConstraints(maxHeight: 230),
+    constraints: const BoxConstraints(maxHeight: 200),
     child: Scrollbar(
     child: ListView(
-    padding: EdgeInsets.zero,
+    shrinkWrap: true,
     children: _tenders.map((t) {
-    final checked =
-    _selectedProjectIds.contains(t.id);
     return CheckboxListTile(
-    contentPadding: const EdgeInsets
-        .symmetric(vertical: 2, horizontal: 4),
-    title: Text(t.name,
-    style:
-    const TextStyle(fontSize: 16)),
-    value: checked,
+    title: Text(t.name),
+    value: _selectedProjectIds.contains(t.id),
     onChanged: (v) {
     setState(() {
-    if (v == true)
-    _selectedProjectIds.add(t.id);
-    else
-    _selectedProjectIds.remove(t.id);
+    if (v == true) _selectedProjectIds.add(t.id);
+    else _selectedProjectIds.remove(t.id);
     });
     },
     );
     }).toList(),
     ),
     ),
-    ),
+    )
     ],
     ),
-    ),
-    const SizedBox(width: 12),
-    SizedBox(
-    width: 120,
-    child: ExpansionTile(
-    tilePadding:
-    const EdgeInsets.symmetric(horizontal: 2),
-    childrenPadding:
-    const EdgeInsets.symmetric(horizontal: 2),
-    title: Text(
-    '表單：${_selectedFormTypes.join('、')}',
-    style: const TextStyle(fontSize: 14),
-    ),
-    initiallyExpanded: _activeFilter == 3,
-    onExpansionChanged: (open) =>
-    setState(() => _activeFilter = open ? 3 : 0),
-    children: [
-    ConstrainedBox(
-    constraints:
-    const BoxConstraints(maxHeight: 130),
-    child: Scrollbar(
-    child: ListView(
-    padding: EdgeInsets.zero,
-    children: _formTypes.map((t) {
-    final checked =
-    _selectedFormTypes.contains(t);
-    return CheckboxListTile(
-    contentPadding:
-    const EdgeInsets.symmetric(
-    vertical: 4, horizontal: 4),
-    title: Text(t,
-    style:
-    const TextStyle(fontSize: 14)),
-    value: checked,
-    onChanged: (v) {
-    setState(() {
-    if (v == true)
-    _selectedFormTypes.add(t);
-    else
-    _selectedFormTypes.remove(t);
-    });
-    },
-    );
-    }).toList(),
-    ),
-    ),
-    ),
-    ],
-    ),
-    ),
-    ],
-    ),
-    const SizedBox(height: 8),
 
-    // 第3排：行政區 & 里別
-    Row(
-    children: [
-    SizedBox(
-    width: 160,
-    child: ExpansionTile(
-    title: Text(
-    '行政區：${_selectedDistricts.join('、')}',
-    style: const TextStyle(fontSize: 14),
+    // 表單類型
+    ExpansionTile(
+    title: Align(
+    alignment: Alignment.centerLeft,
+    child: Text('表單：${_selectedFormTypes.join('、')}', textAlign: TextAlign.left),
     ),
-    initiallyExpanded: _activeFilter == 1,
-    onExpansionChanged: (open) =>
-    setState(() => _activeFilter = open ? 1 : 0),
     children: [
     ConstrainedBox(
-    constraints:
-    const BoxConstraints(maxHeight: 180),
+    constraints: const BoxConstraints(maxHeight: 120),
     child: Scrollbar(
-    controller: _districtScrollController,
-    thumbVisibility: true,
-    thickness: 4,
-    radius: const Radius.circular(2),
     child: ListView(
-    controller: _districtScrollController,
-    padding: EdgeInsets.zero,
-    children: availableDistricts.map((d) {
-    final checked =
-    _selectedDistricts.contains(d);
+    shrinkWrap: true,
+    children: _formTypes.map((f) {
     return CheckboxListTile(
-    contentPadding:
-    const EdgeInsets.symmetric(
-    vertical: 2, horizontal: 4),
-    title: Text(d,
-    style:
-    const TextStyle(fontSize: 16)),
-    value: checked,
+    title: Text(f),
+    value: _selectedFormTypes.contains(f),
     onChanged: (v) {
     setState(() {
-    if (v == true)
-    _selectedDistricts.add(d);
-    else
-    _selectedDistricts.remove(d);
-    _selectedVillages = _selectedVillages
-        .where((v) => availableVillages.contains(v))
-        .toList();
+    if (v == true) _selectedFormTypes.add(f);
+    else _selectedFormTypes.remove(f);
     });
     },
     );
     }).toList(),
     ),
     ),
-    ),
+    )
     ],
     ),
+
+    // 行政區
+    ExpansionTile(
+    title: Align(
+    alignment: Alignment.centerLeft,
+    child: Text('行政區：${_selectedDistricts.join('、')}', textAlign: TextAlign.left),
     ),
-    const SizedBox(width: 8),
-    SizedBox(
-    width: 160,
-    child: ExpansionTile(
-    title: Text(
-    '里別：${_selectedVillages.join('、')}',
-    style: const TextStyle(fontSize: 14),
-    ),
-    initiallyExpanded: _activeFilter == 5,
-    onExpansionChanged: (open) =>
-    setState(() => _activeFilter = open ? 5 : 0),
     children: [
     ConstrainedBox(
-    constraints:
-    const BoxConstraints(maxHeight: 250),
+    constraints: const BoxConstraints(maxHeight: 180),
+    child: Scrollbar(
+    controller: _districtScrollController,
+    thumbVisibility: true,
+    child: ListView(
+    controller: _districtScrollController,
+    shrinkWrap: true,
+    children: availableDistricts.map((d) {
+    return CheckboxListTile(
+    title: Text(d),
+    value: _selectedDistricts.contains(d),
+    onChanged: (v) {
+    setState(() {
+    if (v == true) _selectedDistricts.add(d);
+    else _selectedDistricts.remove(d);
+    _selectedVillages = _selectedVillages.where((v) => availableVillages.contains(v)).toList();
+    });
+    },
+    );
+    }).toList(),
+    ),
+    ),
+    )
+    ],
+    ),
+
+    // 里別
+    ExpansionTile(
+    title: Align(
+    alignment: Alignment.centerLeft,
+    child: Text('里別：${_selectedVillages.join('、')}', textAlign: TextAlign.left),
+    ),
+    children: [
+    ConstrainedBox(
+    constraints: const BoxConstraints(maxHeight: 230),
     child: Scrollbar(
     controller: _villageScrollController,
     thumbVisibility: true,
-    thickness: 4,
-    radius: const Radius.circular(2),
     child: ListView(
     controller: _villageScrollController,
-    padding: EdgeInsets.zero,
+    shrinkWrap: true,
     children: availableVillages.map((v) {
-    final checked =
-    _selectedVillages.contains(v);
     return CheckboxListTile(
-    contentPadding:
-    const EdgeInsets.symmetric(
-    vertical: 1, horizontal: 4),
-    title: Text(v,
-    style:
-    const TextStyle(fontSize: 14)),
-    value: checked,
+    title:  Text(v),
+    value: _selectedVillages.contains(v),
     onChanged: (val) {
     setState(() {
-    if (val == true)
-    _selectedVillages.add(v);
-    else
-    _selectedVillages.remove(v);
+    if (val == true) _selectedVillages.add(v);
+    else _selectedVillages.remove(v);
     });
     },
     );
     }).toList(),
     ),
     ),
-    ),
+    )
     ],
     ),
-    ),
-    ],
-    ),
+
     const SizedBox(height: 8),
 
-    // 第4排：施工路名 & 案件編號
-    Row(
-    children: [
-    SizedBox(
-    width: 160,
+    // 施工路名
+    Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Center(
+    child: SizedBox(
+    width: 240,
     child: TextField(
+    textAlign: TextAlign.center,
     controller: _addressController,
-    decoration: const InputDecoration(
-    labelText: '施工路名',
+    decoration: const InputDecoration(labelText: '施工路名'),
     ),
     ),
     ),
-    const SizedBox(width: 12),
-    SizedBox(
-    width: 150,
+    ),
+
+    // 案件編號
+    Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Center(
+    child: SizedBox(
+    width: 240,
     child: TextField(
+    textAlign: TextAlign.center,
     controller: _caseNumController,
-    decoration: const InputDecoration(
-    labelText: '案件編號'),
+    decoration: const InputDecoration(labelText: '案件編號'),
     ),
     ),
-    ],
     ),
+    ),
+
     const SizedBox(height: 12),
 
     // 查詢按鈕
@@ -812,7 +747,7 @@ class _DispatchListPageState extends State<DispatchListPage> {
     ),
     ),
     ],
-    ),
+      ),
     );
   }
 

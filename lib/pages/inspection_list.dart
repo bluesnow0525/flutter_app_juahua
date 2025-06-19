@@ -357,386 +357,342 @@ class _InspectionListPageState extends State<InspectionListPage> {
       appBar: AppHeader(),
       endDrawer: MyEndDrawer(),
       body: Stack(
-          children: [
-      // 底層：按鈕列 + 資料表
-      Column(
-      children: [
-      // 按鈕列
-      Padding(
-      padding: const EdgeInsets.all(12),
-      child: Row(
         children: [
-          // 「新增案件」按鈕
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0070C0),
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () =>
-                Navigator.pushNamed(context, '/inspectionForm'),
-            child: const Text('新增案件'),
+          Column(
+            children: [
+              // 上方標題列
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                    Expanded(
+                      child: Text(
+                        '巡修單列表',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF30475E),
+                        ),
+                      ),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF30475E),
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: () => setState(() => _showFilters = !_showFilters),
+                      child: Row(
+                        children: [
+                          const Text('查詢欄'),
+                          Icon(_showFilters ? Icons.arrow_drop_up : Icons.arrow_drop_down),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // 表格區（固定高度）
+              SizedBox(
+                height: 550,
+                child: _results.isEmpty
+                    ? Center(child: Text(_loading ? '查詢中…' : '尚無資料，請按「查詢」'))
+                    : SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.all(12),
+                  child: DataTable(
+                    columns: const [
+                      DataColumn(label: Text('表單類型')),
+                      DataColumn(label: Text('案件編號')),
+                      DataColumn(label: Text('巡查日期')),
+                      DataColumn(label: Text('人員')),
+                      DataColumn(label: Text('行政區')),
+                      DataColumn(label: Text('里別')),
+                      DataColumn(label: Text('地址')),
+                      DataColumn(label: Text('破壞類型')),
+                      DataColumn(label: Text('照片')),
+                    ],
+                    rows: _results.map((item) {
+                      return DataRow(
+                        onSelectChanged: (sel) {
+                          if (sel == true) {
+                            Navigator.pushNamed(context, '/inspectionForm', arguments: item);
+                          }
+                        },
+                        cells: [
+                          DataCell(Text(item.formType)),
+                          DataCell(Text(item.caseNum)),
+                          DataCell(Text(DateFormat('yyyy-MM-dd').format(item.recordDate))),
+                          DataCell(Text(item.person)),
+                          DataCell(Text(item.district)),
+                          DataCell(Text(item.village)),
+                          DataCell(Text(item.address)),
+                          DataCell(Text(item.damageType)),
+                          DataCell(
+                            item.photoUrl.isNotEmpty
+                                ? Image.network(item.photoUrl, width: 50, height: 50, fit: BoxFit.cover)
+                                : const SizedBox.shrink(),
+                          ),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+
+              // 下方新增案件按鈕
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Center(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0070C0),
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () =>
+                        Navigator.pushNamed(context, '/inspectionForm'),
+                    child: const Text('新增案件'),
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          // 標題
-          Expanded(
-            child: Text(
-              '巡修單列表',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF30475E),
+
+          // 查詢欄遮罩
+          if (_showFilters)
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: () => setState(() => _showFilters = false),
+                child: Container(color: Colors.black54),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          // 查詢欄切換
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF30475E),
-              foregroundColor: Colors.white,
+
+          // 查詢面板浮層
+          if (_showFilters)
+            Positioned(
+              top: kToolbarHeight + 60,
+              left: 16,
+              right: 16,
+              bottom: 16,
+              child: Material(
+                elevation: 8,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Scrollbar(
+                    thumbVisibility: true,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 起訖日期
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildDateField('開始日期', _startDate, () => _pickDate(isStart: true)),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _buildDateField('結束日期', _endDate, () => _pickDate(isStart: false)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // 標案
+                          ExpansionTile(
+                            title: Text('標案：${_selectedProjectIds.map((i) => _tenders.firstWhere((t) => t.id == i).name).join('、')}'),
+                            children: [
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxHeight: 200),
+                                child: Scrollbar(
+                                  child: ListView(
+                                    shrinkWrap: true,
+                                    children: _tenders.map((t) {
+                                      final checked = _selectedProjectIds.contains(t.id);
+                                      return CheckboxListTile(
+                                        title: Text(t.name),
+                                        value: checked,
+                                        onChanged: (v) {
+                                          setState(() {
+                                            if (v == true) _selectedProjectIds.add(t.id);
+                                            else _selectedProjectIds.remove(t.id);
+                                          });
+                                        },
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          // 表單類型
+                          ExpansionTile(
+                            title: Text('表單類型：${_selectedFormTypes.join('、')}'),
+                            children: [
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxHeight: 120),
+                                child: Scrollbar(
+                                  child: ListView(
+                                    shrinkWrap: true,
+                                    children: _formTypes.map((f) {
+                                      final checked = _selectedFormTypes.contains(f);
+                                      return CheckboxListTile(
+                                        title: Text(f),
+                                        value: checked,
+                                        onChanged: (v) {
+                                          setState(() {
+                                            if (v == true) _selectedFormTypes.add(f);
+                                            else _selectedFormTypes.remove(f);
+                                          });
+                                        },
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          // 行政區
+                          ExpansionTile(
+                            title: Text('行政區：${_selectedDistricts.join('、')}'),
+                            children: [
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxHeight: 160),
+                                child: Scrollbar(
+                                  controller: _districtScrollController,
+                                  thumbVisibility: true,
+                                  child: ListView(
+                                    controller: _districtScrollController,
+                                    shrinkWrap: true,
+                                    children: availableDistricts.map((d) {
+                                      final checked = _selectedDistricts.contains(d);
+                                      return CheckboxListTile(
+                                        title: Text(d),
+                                        value: checked,
+                                        onChanged: (v) {
+                                          setState(() {
+                                            if (v == true) _selectedDistricts.add(d);
+                                            else _selectedDistricts.remove(d);
+                                            _selectedVillages = _selectedVillages
+                                                .where((x) => availableVillages.contains(x))
+                                                .toList();
+                                          });
+                                        },
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          // 里別
+                          ExpansionTile(
+                            title: Text('里別：${_selectedVillages.join('、')}'),
+                            children: [
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxHeight: 230),
+                                child: Scrollbar(
+                                  controller: _villageScrollController,
+                                  thumbVisibility: true,
+                                  child: ListView(
+                                    controller: _villageScrollController,
+                                    shrinkWrap: true,
+                                    children: availableVillages.map((v) {
+                                      final checked = _selectedVillages.contains(v);
+                                      return CheckboxListTile(
+                                        title: Text(v),
+                                        value: checked,
+                                        onChanged: (x) {
+                                          setState(() {
+                                            if (x == true) _selectedVillages.add(v);
+                                            else _selectedVillages.remove(v);
+                                          });
+                                        },
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          // 破壞類型
+                          ExpansionTile(
+                            title: Text('破壞類型：${_selectedDamageTypes.join('、')}'),
+                            children: [
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxHeight: 200),
+                                child: Scrollbar(
+                                  child: ListView(
+                                    shrinkWrap: true,
+                                    children: _damageTypes.map((d) {
+                                      final checked = _selectedDamageTypes.contains(d);
+                                      return CheckboxListTile(
+                                        title: Text(d),
+                                        value: checked,
+                                        onChanged: (v) {
+                                          setState(() {
+                                            if (v == true) _selectedDamageTypes.add(d);
+                                            else _selectedDamageTypes.remove(d);
+                                          });
+                                        },
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          // 案件編號
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _caseNumController,
+                            decoration: const InputDecoration(labelText: '案件編號'),
+                          ),
+                          const SizedBox(height: 20),
+
+                          // 查詢按鈕
+                          Center(
+                            child: SizedBox(
+                              width: 100,
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF30475E),
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: _loading
+                                    ? null
+                                    : () async {
+                                  await _fetchInspections();
+                                  setState(() => _showFilters = false);
+                                },
+                                child: Text(_loading ? '查詢中…' : '查詢'),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ),
-            onPressed: () => setState(() => _showFilters = !_showFilters),
-            child: Row(
-              children: [
-                const Text('查詢欄'),
-                Icon(_showFilters
-                    ? Icons.arrow_drop_up
-                    : Icons.arrow_drop_down),
-              ],
-            ),
-          ),
         ],
       ),
-    ),
-    // 資料表
-    Expanded(
-    child: _results.isEmpty
-    ? Center(child: Text(_loading ? '查詢中…' : '尚無資料，請按「查詢」'))
-        : SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    padding: const EdgeInsets.all(12),
-    child: DataTable(
-    columns: const [
-    DataColumn(label: Text('表單類型')),
-    DataColumn(label: Text('案件編號')),
-    DataColumn(label: Text('巡查日期')),
-    DataColumn(label: Text('人員')),
-    DataColumn(label: Text('行政區')),
-    DataColumn(label: Text('里別')),
-    DataColumn(label: Text('地址')),
-    DataColumn(label: Text('破壞類型')),
-    DataColumn(label: Text('照片')),
-    ],
-    rows: _results.map((item) {
-    return DataRow(
-    onSelectChanged: (sel) {
-    if (sel == true) {
-    Navigator.pushNamed(
-    context,
-    '/inspectionForm',
-    arguments: item,
-    );
-    }
-    },
-    cells: [
-    DataCell(Text(item.formType)),
-    DataCell(Text(item.caseNum)),
-    DataCell(Text(DateFormat('yyyy-MM-dd').format(item.recordDate))),
-    DataCell(Text(item.person)),
-    DataCell(Text(item.district)),
-    DataCell(Text(item.village)),
-    DataCell(Text(item.address)),
-    DataCell(Text(item.damageType)),
-    DataCell(
-    item.photoUrl.isNotEmpty
-    ? Image.network(
-    item.photoUrl,
-    width: 50,
-    height: 50,
-    fit: BoxFit.cover,
-    )
-        : const SizedBox.shrink(),
-    ),
-    ],
-    );
-    }).toList(),
-    ),
-    ),
-    ),
-    ],
-    ),
-
-    // 半透遮罩：點擊可收起查詢欄
-    if (_showFilters)
-    Positioned.fill(
-    child: GestureDetector(
-    onTap: () => setState(() => _showFilters = false),
-    child: Container(color: Colors.black54),
-    ),
-    ),
-
-    // 浮層查詢面板
-    if (_showFilters)
-    Positioned(
-    top: kToolbarHeight + 60,
-    left: 16,
-    right: 16,
-    child: Material(
-    elevation: 8,
-    borderRadius: BorderRadius.circular(8),
-    child: Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(8),
-    ),
-    child: ConstrainedBox(
-    constraints: const BoxConstraints(maxHeight: 600),
-    child: SingleChildScrollView(
-    child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-    // 起訖日期
-    Row(
-    children: [
-    _buildDateField('開始日期', _startDate, () => _pickDate(isStart: true)),
-    const SizedBox(width: 12),
-    _buildDateField('結束日期', _endDate, () => _pickDate(isStart: false)),
-    ],
-    ),
-    const SizedBox(height: 8),
-    // 標案
-    Row(
-    children: [
-    SizedBox(
-    width: 200,
-    child: ExpansionTile(
-    title: Text(
-    '標案：${_selectedProjectIds.isEmpty ? '' : _selectedProjectIds.map((i) => _tenders.firstWhere((t) => t.id == i).name).join('、')}',
-    style: const TextStyle(fontSize: 14),
-    ),
-    initiallyExpanded: _activeFilter == 2,
-    onExpansionChanged: (o) => setState(() => _activeFilter = o ? 2 : 0),
-    children: [
-    ConstrainedBox(
-    constraints: const BoxConstraints(maxHeight: 230),
-    child: Scrollbar(
-    child: ListView(
-    padding: EdgeInsets.zero,
-    children: _tenders.map((t) {
-    final checked = _selectedProjectIds.contains(t.id);
-    return CheckboxListTile(
-    contentPadding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
-    title: Text(t.name),
-    value: checked,
-    onChanged: (v) {
-    setState(() {
-    if (v == true) _selectedProjectIds.add(t.id);
-    else _selectedProjectIds.remove(t.id);
-    });
-    },
-    );
-    }).toList(),
-    ),
-    ),
-    ),
-    ],
-    ),
-    ),
-    const SizedBox(width: 8),
-    // 表單類型
-    SizedBox(
-    width: 120,
-    child: ExpansionTile(
-    title: Text('表單：${_selectedFormTypes.join('、')}'),
-    initiallyExpanded: _activeFilter == 3,
-    onExpansionChanged: (o) => setState(() => _activeFilter = o ? 3 : 0),
-    children: [
-    ConstrainedBox(
-    constraints: const BoxConstraints(maxHeight: 130),
-    child: Scrollbar(
-    child: ListView(
-    padding: EdgeInsets.zero,
-    children: _formTypes.map((f) {
-    final c = _selectedFormTypes.contains(f);
-    return CheckboxListTile(
-    contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-    title: Text(f),
-    value: c,
-    onChanged: (v) {
-    setState(() {
-    if (v == true) _selectedFormTypes.add(f);
-    else _selectedFormTypes.remove(f);
-    });
-    },
-    );
-    }).toList(),
-    ),
-    ),
-    ),
-    ],
-    ),
-    ),
-    ],
-    ),
-    const SizedBox(height: 8),
-    // 行政區 & 里別
-    Row(
-    children: [
-    SizedBox(
-    width: 160,
-    child: ExpansionTile(
-    title: Text('行政區：${_selectedDistricts.join('、')}'),
-    initiallyExpanded: _activeFilter == 1,
-    onExpansionChanged: (o) => setState(() => _activeFilter = o ? 1 : 0),
-    children: [
-    ConstrainedBox(
-    constraints: const BoxConstraints(maxHeight: 180),
-    child: Scrollbar(
-    controller: _districtScrollController,
-    thickness: 4,
-    thumbVisibility: true,
-    child: ListView(
-    controller: _districtScrollController,
-    padding: EdgeInsets.zero,
-    children: availableDistricts.map((d) {
-    final c = _selectedDistricts.contains(d);
-    return CheckboxListTile(
-    contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-    title: Text(d),
-    value: c,
-    onChanged: (v) {
-    setState(() {
-    if (v == true) _selectedDistricts.add(d);
-    else _selectedDistricts.remove(d);
-    _selectedVillages = _selectedVillages
-        .where((x) => availableVillages.contains(x))
-        .toList();
-    });
-    },
-    );
-    }).toList(),
-    ),
-    ),
-    ),
-    ],
-    ),
-    ),
-    const SizedBox(width: 8),
-    SizedBox(
-    width: 160,
-    child: ExpansionTile(
-    title: Text('里別：${_selectedVillages.join('、')}'),
-    initiallyExpanded: _activeFilter == 5,
-    onExpansionChanged: (o) => setState(() => _activeFilter = o ? 5 : 0),
-    children: [
-    ConstrainedBox(
-    constraints: const BoxConstraints(maxHeight: 270),
-    child: Scrollbar(
-    controller: _villageScrollController,
-    thickness: 4,
-    thumbVisibility: true,
-    child: ListView(
-    controller: _villageScrollController,
-    padding: EdgeInsets.zero,
-    children: availableVillages.map((v) {
-    final c = _selectedVillages.contains(v);
-    return CheckboxListTile(
-    contentPadding: const EdgeInsets.symmetric(vertical: 1, horizontal: 4),
-    title: Text(v),
-    value: c,
-    onChanged: (x) {
-    setState(() {
-    if (x == true) _selectedVillages.add(v);
-    else _selectedVillages.remove(v);
-    });
-    },
-    );
-    }).toList(),
-    ),
-    ),
-    ),
-    ],
-    ),
-    ),
-    ],
-    ),
-    const SizedBox(height: 8),
-    // 破壞類型 & 案件編號
-    Row(
-    children: [
-    SizedBox(
-    width: 160,
-    child: ExpansionTile(
-    title: Text('破壞：${_selectedDamageTypes.join('、')}'),
-    initiallyExpanded: _activeFilter == 4,
-    onExpansionChanged: (o) => setState(() => _activeFilter = o ? 4 : 0),
-    children: [
-    ConstrainedBox(
-    constraints: const BoxConstraints(maxHeight: 270),
-    child: Scrollbar(
-    child: ListView(
-    padding: EdgeInsets.zero,
-    children: _damageTypes.map((d) {
-    final c = _selectedDamageTypes.contains(d);
-    return CheckboxListTile(
-    contentPadding: const EdgeInsets.symmetric(vertical: 1, horizontal: 4),
-    title: Text(d),
-    value: c,
-    onChanged: (v) {
-    setState(() {
-    if (v == true) _selectedDamageTypes.add(d);
-    else _selectedDamageTypes.remove(d);
-    });
-    },
-    );
-    }).toList(),
-    ),
-    ),
-    ),
-    ],
-    ),
-    ),
-    const SizedBox(width: 12),
-    SizedBox(
-    width: 150,
-    child: TextField(
-    controller: _caseNumController,
-    decoration: const InputDecoration(labelText: '案件編號'),
-    ),
-    ),
-    ],
-    ),
-    const SizedBox(height: 12),
-    // 查詢按鈕
-    Center(
-    child: SizedBox(
-    width: 100,
-    child: ElevatedButton(
-    style: ElevatedButton.styleFrom(
-    backgroundColor: const Color(0xFF30475E),
-    foregroundColor: Colors.white,
-    ),
-    onPressed: _loading
-    ? null
-        : () async {
-    await _fetchInspections();
-    setState(() => _showFilters = false);
-    },
-    child: Text(_loading ? '查詢中…' : '查詢'),
-    ),
-    ),
-    ),
-    ],
-    ),
-    ),
-    ),
-    ),
-    ),
-    ),
-    ],
-    ),
     );
   }
 

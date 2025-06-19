@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 import 'app_state.dart';
 import 'pages/login.dart';
@@ -14,6 +15,8 @@ import 'pages/inspection_form.dart';
 import 'pages/dispatch_form_cut.dart';
 import 'pages/dispatch_form_base.dart';
 
+import 'firebase/fcm_setup.dart';
+
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
@@ -23,9 +26,16 @@ Future<void> main() async {
   await Hive.initFlutter();
   await Hive.openBox('uploadBox');
 
+  await Firebase.initializeApp();
+  final fcmToken = await setupFCM();
+
   runApp(
     ChangeNotifierProvider(
-      create: (_) => AppState()..loadUploadsFromDisk(),
+      create:
+          (_) =>
+              AppState()
+                ..loadUploadsFromDisk()
+                ..setFcmToken(fcmToken),
       child: const MyApp(),
     ),
   );

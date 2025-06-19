@@ -243,10 +243,18 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
     _caseIdController.text = item.caseNum;
     _onProjectChanged(item.prjId);
     _villageController.text      = item.village;
-    _dispatchDateController.text = DateFormat('yyyy-MM-dd').format(item.dispatchDate);
-    _deadlineController.text     = DateFormat('yyyy-MM-dd').format(item.dueDate);
-    _workDateController.text     = DateFormat('yyyy-MM-dd').format(item.workStartDate);
-    _completeDateController.text = DateFormat('yyyy-MM-dd').format(item.workEndDate);
+    _dispatchDateController.text = item.dispatchDate != null
+        ? DateFormat('yyyy-MM-dd').format(item.dispatchDate!)
+        : '';
+    _deadlineController.text = item.dueDate != null
+        ? DateFormat('yyyy-MM-dd').format(item.dueDate!)
+        : '';
+    _workDateController.text = item.workStartDate != null
+        ? DateFormat('yyyy-MM-dd').format(item.workStartDate!)
+        : '';
+    _completeDateController.text = item.workEndDate != null
+        ? DateFormat('yyyy-MM-dd').format(item.workEndDate!)
+        : '';
     _roadNameController.text     = item.address;
     _startRoadNameController.text = item.startAddr;  // 新增：接收後端 START_ADDR
     _endRoadNameController.text   = item.endAddr;
@@ -1150,15 +1158,29 @@ class _DispatchCutFormPageState extends State<DispatchCutFormPage> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.only(bottom: 8), // 與下方元件留點距離
-              child: Text(
-                '派工單 - 刨除加封',
-                textAlign: TextAlign.center, // 文字置中
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF30475E), // 文字顏色可依需求調整
-                ),
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Color(0xFF30475E)),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                  const Center(
+                    child: Text(
+                      '派工單 - 刨除加封',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF30475E),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             // 1) 案件編號

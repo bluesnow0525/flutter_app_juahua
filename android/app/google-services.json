@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "541723490411",
+    "project_id": "yusheng-app",
+    "storage_bucket": "yusheng-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:541723490411:android:f5e72e0efad5505905d92e",
+        "android_client_info": {
+          "package_name": "com.juahua.yusheng"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCTHOZkwFXx1YYmYfB6w6uXRST_5qqCAbY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

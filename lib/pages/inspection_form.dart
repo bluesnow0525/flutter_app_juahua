@@ -931,14 +931,28 @@ class _InspectionFormPageState extends State<InspectionFormPage> {
           children: [
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                '巡修單',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF30475E),
-                ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Color(0xFF30475E)),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                  const Center(
+                    child: Text(
+                      '巡修單',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF30475E),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             // 1) 案件編號 (唯讀)

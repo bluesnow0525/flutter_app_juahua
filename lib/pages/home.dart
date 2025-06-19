@@ -263,7 +263,7 @@ class _HomePageState extends State<HomePage> {
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
-                columnSpacing: 32,
+                columnSpacing: 24,
                 columns: const [
                   DataColumn(label: Text('項目')),
                   DataColumn(label: Text('案件編號')),
@@ -395,7 +395,7 @@ class _HomePageState extends State<HomePage> {
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: DataTable(
-            columnSpacing: 32,
+            columnSpacing: 24,
             columns: [
               const DataColumn(label: Text('勾選')),
               const DataColumn(label: Text('狀態')),
